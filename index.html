@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>rototem-web</title>
+  <style>
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    html, body {
+      background-color: #0d1117;
+      color: #c9d1d9;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "JetBrains Mono", monospace;
+      overflow: hidden;
+      height: 100vh;
+      width: 100vw;
+    }
+    #app {
+      height: 100%;
+      width: 100%;
+    }
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #161b22;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #30363d;
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #58a6ff;
+    }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <script>
+    window.Module = window.Module || {};
+    window.__skredStdout = [];
+    window.Module.print = function(...args) {
+      const line = args.join(" ");
+      window.__skredStdout.push(line);
+      console.log("[SKRED OUT]", ...args);
+    };
+    window.Module.printErr = function(...args) {
+      const line = args.join(" ");
+      window.__skredStdout.push("[ERR] " + line);
+      console.error("[SKRED ERR]", ...args);
+    };
+    window.Module.locateFile = function(path) {
+      return "/vendor/skred/" + path;
+    };
+  </script>
+  <script src="/vendor/skred/skred_api.js"></script>
+  <script type="module" src="/entry.mjs"></script>
+</body>
+</html>

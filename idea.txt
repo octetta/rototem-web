@@ -1,0 +1,45 @@
+i want to take the ideas i worked on for the desktop app ro-totem that used
+an older version of the skred sound engine, some ideas i've been experimenting
+with using gleam and lustre to control skred and make a modern web-first
+version of ro-totem called rototem-web.
+
+i have a directory ~/book/rototem-web where this text file lives that
+i want to be the repo starting point
+
+the ideas from ro-totem that need to be carried forward into rototem-web:
+
+attach many sound files (.wav .mp3 .flac) to the instance
+
+have a master area that allows:
+
+- button to select a directory where sound files come from
+- a button to start/stop all configured voices running
+- a button to assign random loaded sound files to all voices
+- a load setting button to attach a zip file with configuration and sound files
+- a save setting button to store the current configuration and sound files into a zip file
+- a master volume setting slider
+- a button to select the audio output device
+- a record start/stop button
+
+then there should be 0 to 8 seperate areas for "tracks" (pairs of skred voices one for left audio one for right audio)
+
+each of these areas should have
+
+- a "card" widget to minimize the card
+- a "card" widget to restore the card
+- a "card" widget to make itself repositionable
+
+- button to select a sound file by picking
+- button to select a sound randomly from the attached files
+- button to to start/stop the selected sound
+- slider to change the volume of the sound
+- slider to change the playback speed of the sound
+- buttons to change the playback speed one octave lower, one semitone lower, normal speed, one semitone higher, one octave higher
+- button to mute the sound
+- button to flip the playback direction
+
+the existing ui has a bootstrap appearance but that's not totally needed, as i want it to be orderly and space efficient,
+but modern and appealing
+
+the way the web page talks to skred needs to inherit gleam/lustre idiomatic interface methods to skred, but
+functionally be influenced from the ro-totem app
