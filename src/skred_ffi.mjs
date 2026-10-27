@@ -86,14 +86,13 @@ export function initEngine(callback) {
         try { win.Module.FS.mkdir("waves"); } catch (e) {}
       }
 
-      // Enumerate and select default playback device (matches ro-totem)
+      // Enumerate playback devices and select default output (0); disable capture/input (-2)
       if (typeof win.Module._skred_enumerate_devices === "function") {
         win.Module._skred_enumerate_devices(0);
-        win.Module._skred_enumerate_devices(1);
       }
       if (typeof win.Module._skred_audio_select === "function") {
         win.Module._skred_audio_select(0, 0);
-        win.Module._skred_audio_select(1, 0);
+        win.Module._skred_audio_select(1, -2);
       }
 
       // Start engine with 128 buffer size, 256 voices, default port (-1)
@@ -182,11 +181,10 @@ export function ensureEngineRunning() {
   try {
     if (typeof M._skred_enumerate_devices === "function") {
       M._skred_enumerate_devices(0);
-      M._skred_enumerate_devices(1);
     }
     if (typeof M._skred_audio_select === "function") {
       M._skred_audio_select(0, 0);
-      M._skred_audio_select(1, 0);
+      M._skred_audio_select(1, -2);
     }
     if (typeof M._skred_start === "function") {
       const res = M._skred_start(128, 256, -1);
