@@ -14,5 +14,8 @@
   },
   "devDependencies": {
     "vite": "^6.2.0"
+  },
+  "dependencies": {
+    "coi-serviceworker": "^0.1.7"
   }
 }

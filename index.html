@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>rototem-web</title>
+  <script src="./coi-serviceworker.js"></script>
   <style>
     *, *::before, *::after {
       box-sizing: border-box;
@@ -54,10 +55,10 @@
       console.error("[SKRED ERR]", ...args);
     };
     window.Module.locateFile = function(path) {
-      return "/vendor/skred/" + path;
+      return new URL("vendor/skred/" + path, window.location.href).href;
     };
   </script>
-  <script src="/vendor/skred/skred_api.js"></script>
-  <script type="module" src="/entry.mjs"></script>
+  <script src="./vendor/skred/skred_api.js"></script>
+  <script type="module" src="./entry.mjs"></script>
 </body>
 </html>

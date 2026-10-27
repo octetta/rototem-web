@@ -1,0 +1,82 @@
+name: Deploy to GitHub Pages & Release Build
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Erlang & Gleam
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: "27"
+          gleam-version: "latest"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Download Gleam dependencies
+        run: gleam deps download
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Run Gleam tests
+        run: gleam test --target javascript
+
+      - name: Build web application
+        run: npm run build
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: "./dist"
+
+      - name: Package release archives
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          tar -czvf rototem-web-${{ github.ref_name }}.tar.gz -C dist .
+          zip -r rototem-web-${{ github.ref_name }}.zip dist/
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            rototem-web-${{ github.ref_name }}.tar.gz
+            rototem-web-${{ github.ref_name }}.zip
+          generate_release_notes: true
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

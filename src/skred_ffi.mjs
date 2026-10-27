@@ -63,6 +63,9 @@ export function initEngine(callback) {
   // Pre-configure Emscripten Module
   win.Module = win.Module || {};
   win.Module.locateFile = function (path) {
+    if (typeof window !== "undefined") {
+      return new URL("vendor/skred/" + path, window.location.href).href;
+    }
     return "/vendor/skred/" + path;
   };
 
