@@ -20,7 +20,7 @@
 ////    - `command_to_string(SkodeCommand) -> String`: Serializes a domain command to executable ASCII text.
 ////
 //// 3. **Syntax Elements Modeled**:
-////    - Atoms (`v0`, `a-6.0`, `f440`, `DL`, `*R`) with optional whitespace or prefix arguments.
+////    - Atoms (e.g. atom `v` with arg `0`, atom `a` with arg `-6.0`, atom `f` with arg `440`, or bare atoms like `DL`, `*R`, `T`). Atom names never contain digits and can accept up to 10 prefix or postfix arguments.
 ////    - Bracketed string literals (`[path/to/wave.wav]`, `[tune.sk] /ls`, `[algo.ks] /ks`).
 ////    - Parenthesized numeric data arrays (`( 60 64 67 - . 72 )`) with ties (`.`, `_`) and rests (`-`, `e`).
 ////    - In-band line comments (`# comment`).
@@ -69,7 +69,7 @@ pub type DeferMode {
 
 /// Fundamental syntactic element in the ANDS stream.
 pub type Element {
-  /// Atom word with zero or more preceding/following arguments (e.g. "v0", "a-6.0", "eR")
+  /// Atom word with zero or more arguments (e.g. atom "v" with arg 0, atom "a" with arg -6.0, bare atom "DL", or atoms with up to 10 args)
   Atom(name: String, args: List(Value))
   /// Bracketed string literal: [path/to/wave.wav]
   Str(String)

@@ -873,3 +873,50 @@ pub fn skode_parser_error_handling_test() {
   err_empty
   |> should.equal(Error(skode.ParseError("No syntactic elements found", 0)))
 }
+
+pub fn skode_atom_names_and_multi_arg_test() {
+  // 1. Atoms cannot contain numbers in their names:
+  // "v0" is atom "v" with argument 0, not an atom named "v0"
+  let assert Ok(el_v0) = skode.parse_element("v0")
+  el_v0 |> should.equal(skode.Atom("v", [skode.Num(0.0)]))
+
+  let assert Ok(el_f440) = skode.parse_element("f440.5")
+  el_f440 |> should.equal(skode.Atom("f", [skode.Num(440.5)]))
+
+  let assert Ok(el_bc) = skode.parse_element("BC10")
+  el_bc |> should.equal(skode.Atom("BC", [skode.Num(10.0)]))
+
+  // 2. An atom can accept up to 10 postfix arguments:
+  let assert Ok(el_10_args) =
+    skode.parse_element("fx 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0")
+  case el_10_args {
+    skode.Atom(name, args) -> {
+      name |> should.equal("fx")
+      list.length(args) |> should.equal(10)
+      args
+      |> should.equal([
+        skode.Num(1.0),
+        skode.Num(2.0),
+        skode.Num(3.0),
+        skode.Num(4.0),
+        skode.Num(5.0),
+        skode.Num(6.0),
+        skode.Num(7.0),
+        skode.Num(8.0),
+        skode.Num(9.0),
+        skode.Num(10.0),
+      ])
+    }
+    _ -> panic as "Expected Atom with 10 arguments"
+  }
+
+  // 3. An atom can accept up to 10 prefix arguments:
+  let assert Ok(el_prefix_10) = skode.parse_element("1 2 3 4 5 6 7 8 9 10 fx")
+  case el_prefix_10 {
+    skode.Atom(name, args) -> {
+      name |> should.equal("fx")
+      list.length(args) |> should.equal(10)
+    }
+    _ -> panic as "Expected Atom with 10 prefix arguments"
+  }
+}
