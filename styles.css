@@ -309,7 +309,15 @@
   color: var(--text-muted);
 }
 
-/* Minimized Card */
+/* Minimized Card & Desktop Minimized Shelf */
+.track-card.is-minimized {
+  align-self: start;
+}
+
+.track-card.floating.is-minimized {
+  width: 270px;
+}
+
 .card-minimized-body {
   display: flex;
   align-items: center;
@@ -329,6 +337,122 @@
 .minimized-controls {
   display: flex;
   gap: 0.25rem;
+}
+
+/* Minimized Shelf / Dock for Desktop */
+.minimized-dock {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.45rem 0.75rem;
+  margin-bottom: 0.75rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow-x: auto;
+  box-shadow: var(--shadow-card);
+}
+
+.minimized-dock-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.minimized-dock-title {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.minimized-restore-all-btn {
+  font-size: 0.68rem;
+  padding: 0.15rem 0.45rem;
+}
+
+.minimized-dock-chips {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.minimized-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--track-color, var(--accent));
+  border-radius: 4px;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+  box-shadow: var(--shadow-card);
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.minimized-chip:hover {
+  background: var(--bg-subtle);
+}
+
+.minimized-chip-label {
+  font-weight: 800;
+  font-size: 0.78rem;
+  color: var(--track-color, var(--text-main));
+  white-space: nowrap;
+}
+
+.minimized-chip-sample {
+  color: var(--text-muted);
+  max-width: 130px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 0.72rem;
+}
+
+.minimized-chip-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.desktop-grid-empty-hint {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 2.5rem 1rem;
+  background: var(--bg-card);
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+/* Responsive Minimize Behavior */
+@media (min-width: 681px) {
+  /* On desktop: minimized docked cards are hidden in the grid so expanded cards fill space */
+  .tracks-grid .track-card.is-minimized {
+    display: none;
+  }
+}
+
+@media (max-width: 680px) {
+  /* On mobile: shelf is hidden; cards collapse in-line as the single-column list */
+  .minimized-dock {
+    display: none !important;
+  }
+  .tracks-grid .track-card.is-minimized {
+    display: flex;
+  }
+  .desktop-grid-empty-hint {
+    display: none !important;
+  }
 }
 
 /* Expanded Card Body */

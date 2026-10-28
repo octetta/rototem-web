@@ -19,7 +19,9 @@ import rototem/views/library_modal.{view_library_modal}
 import rototem/views/master_bar.{
   view_master_bar, view_mobile_track_tabs, view_status_banner,
 }
-import rototem/views/track_card.{view_card_grid, view_floating_layer}
+import rototem/views/track_card.{
+  view_card_grid, view_floating_layer, view_minimized_dock,
+}
 
 // Re-exported for test compatibility with rototem_web_test.gleam
 pub type ThemePalette =
@@ -78,6 +80,8 @@ pub fn view(model: Model) -> Element(Msg) {
     view_status_banner(model.status_message),
     view_mobile_track_tabs(model),
     div([class("workspace-area")], [
+      // Minimized track dock/shelf on desktop
+      view_minimized_dock(model.tracks),
       // 1. Grid of docked cards
       view_card_grid(model.tracks, model.library, model.mobile_active_track),
       // 2. Floating overlay of popped-out cards

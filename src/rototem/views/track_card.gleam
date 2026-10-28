@@ -10,7 +10,7 @@ import gleam/int
 import gleam/list
 import gleam/option.{None, Some}
 import lustre/attribute.{attribute, class, selected, styles, type_, value}
-import lustre/element.{type Element, text}
+import lustre/element.{type Element, none, text}
 import lustre/element/html.{button, div, input, option, select, span}
 import lustre/event
 import rototem/types.{
@@ -34,9 +34,142 @@ pub fn view_card_grid(
       }
     })
 
+  let all_docked_minimized =
+    !list.is_empty(docked_tracks)
+    && list.all(docked_tracks, fn(t) { t.card_display == Minimized })
+
+  let card_elements =
+    list.map(docked_tracks, fn(track) { view_track_card(track, library) })
+
+  let grid_children = case all_docked_minimized {
+    True -> [
+      div([class("desktop-grid-empty-hint")], [
+        span([class("empty-hint-icon")], [text("ℹ️")]),
+        span([class("empty-hint-text")], [
+          text("All docked track cards are minimized in the shelf above."),
+        ]),
+      ]),
+      ..card_elements
+    ]
+    False -> card_elements
+  }
+
+  div([class("tracks-grid")], grid_children)
+}
+
+/// Renders the horizontal minimized track shelf for docked tracks on desktop.
+pub fn view_minimized_dock(tracks: List(Track)) -> Element(Msg) {
+  let minimized_docked =
+    list.filter(tracks, fn(t) {
+      case t.card_mode, t.card_display {
+        Grid, Minimized -> True
+        _, _ -> False
+      }
+    })
+
+  case minimized_docked {
+    [] -> none()
+    _ -> {
+      let count = list.length(minimized_docked)
+      let restore_all_btn = case count >= 2 {
+        True ->
+          button(
+            [
+              class("card-action-btn minimized-restore-all-btn"),
+              attribute("title", "Restore all minimized tracks to main grid"),
+              event.on_click(types.RestoreAllTracks),
+            ],
+            [text("⟲ Restore All")],
+          )
+        False -> none()
+      }
+
+      div([class("minimized-dock")], [
+        div([class("minimized-dock-header")], [
+          span([class("minimized-dock-title")], [text("Minimized Tracks:")]),
+          restore_all_btn,
+        ]),
+        div(
+          [class("minimized-dock-chips")],
+          list.map(minimized_docked, view_minimized_chip),
+        ),
+      ])
+    }
+  }
+}
+
+fn view_minimized_chip(track: Track) -> Element(Msg) {
+  let sample_label = case track.audio_file {
+    Some(f) -> f.name
+    None -> "(no wave)"
+  }
+  let has_sample = option.is_some(track.audio_file)
+
+  let play_btn_class = case track.playing, has_sample {
+    True, _ -> "btn btn-danger btn-xs"
+    False, True -> "btn btn-primary btn-xs"
+    False, False -> "btn btn-secondary btn-xs btn-no-sample"
+  }
+  let play_btn_title = case has_sample {
+    True -> "Toggle playback"
+    False -> "Assign an audio sample to enable playback"
+  }
+
   div(
-    [class("tracks-grid")],
-    list.map(docked_tracks, fn(track) { view_track_card(track, library) }),
+    [
+      class("minimized-chip"),
+      styles([#("--track-color", track.color)]),
+    ],
+    [
+      span([class("minimized-chip-label")], [
+        text("Track " <> int.to_string(track.id + 1)),
+      ]),
+      span([class("minimized-chip-sample"), attribute("title", sample_label)], [
+        text(sample_label),
+      ]),
+      div([class("minimized-chip-actions")], [
+        button(
+          [
+            class(play_btn_class),
+            attribute("title", play_btn_title),
+            event.on_click(types.ToggleTrackPlay(track.id)),
+          ],
+          [
+            text(case track.playing {
+              True -> "⏹"
+              False -> "▶"
+            }),
+          ],
+        ),
+        button(
+          [
+            class(case track.muted {
+              True -> "btn btn-danger btn-xs"
+              False -> "btn btn-secondary btn-xs"
+            }),
+            attribute("title", case track.muted {
+              True -> "Unmute track"
+              False -> "Mute track"
+            }),
+            event.on_click(types.ToggleTrackMute(track.id)),
+          ],
+          [
+            text(case track.muted {
+              True -> "🔇"
+              False -> "🔊"
+            }),
+          ],
+        ),
+        button(
+          [
+            class("card-action-btn"),
+            attribute("title", "Restore track card to main grid"),
+            event.on_click(types.ToggleTrackMinimize(track.id)),
+          ],
+          [text("□ Restore")],
+        ),
+      ]),
+    ],
   )
 }
 
@@ -66,10 +199,17 @@ pub fn view_track_card(track: Track, library: List(AudioFile)) -> Element(Msg) {
     Normal -> False
   }
 
+  let class_minimized = case is_minimized {
+    True -> " is-minimized"
+    False -> ""
+  }
+
   // Fast GPU-composited styling via CSS Custom Properties
   let #(is_floating, card_classes, card_styles) = case track.card_mode {
-    Grid -> #(False, "track-card", [#("--track-color", track.color)])
-    Floating(x, y, z) -> #(True, "track-card floating", [
+    Grid -> #(False, "track-card" <> class_minimized, [
+      #("--track-color", track.color),
+    ])
+    Floating(x, y, z) -> #(True, "track-card floating" <> class_minimized, [
       #("--track-color", track.color),
       #("--card-x", float.to_string(x)),
       #("--card-y", float.to_string(y)),
@@ -138,6 +278,10 @@ fn view_card_header(track: Track, is_floating: Bool) -> Element(Msg) {
       button(
         [
           class("card-action-btn"),
+          attribute("title", case is_minimized {
+            True -> "Restore card"
+            False -> "Minimize card"
+          }),
           event.on_click(types.ToggleTrackMinimize(track.id)),
         ],
         [

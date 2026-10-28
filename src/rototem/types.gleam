@@ -143,6 +143,7 @@ pub type Msg {
   ToggleTrackMute(track_id: Int)
   ToggleTrackDirection(track_id: Int)
   ToggleTrackMinimize(track_id: Int)
+  RestoreAllTracks
   FloatTrackCard(track_id: Int)
   DockTrackCard(track_id: Int)
   StartDragCard(

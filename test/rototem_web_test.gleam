@@ -12,6 +12,7 @@ import rototem/types.{
 }
 import rototem/ui
 import rototem/views/common
+import rototem/views/track_card
 import rototem_web
 
 pub fn main() {
@@ -586,4 +587,37 @@ pub fn console_controls_and_execution_test() {
   let esc_json = "{\"key\": \"Escape\"}"
   json.parse(esc_json, common.key_down_console_decoder())
   |> should.equal(Ok(types.ToggleConsole))
+}
+
+pub fn track_minimize_and_restore_all_test() {
+  let #(initial_model, _) = rototem_web.init(Nil)
+
+  // Initial state: all tracks should be Normal
+  let all_normal =
+    list.all(initial_model.tracks, fn(t) { t.card_display == Normal })
+  all_normal |> should.equal(True)
+
+  // view_minimized_dock should be empty when no tracks are minimized
+  let _empty_dock = track_card.view_minimized_dock(initial_model.tracks)
+
+  // ToggleTrackMinimize on Track 0 and Track 1
+  let #(model_min_0, _) =
+    rototem_web.update(initial_model, types.ToggleTrackMinimize(0))
+  let assert Ok(t0_min) = list.find(model_min_0.tracks, fn(t) { t.id == 0 })
+  t0_min.card_display |> should.equal(Minimized)
+
+  let #(model_min_both, _) =
+    rototem_web.update(model_min_0, types.ToggleTrackMinimize(1))
+  let assert Ok(t1_min) = list.find(model_min_both.tracks, fn(t) { t.id == 1 })
+  t1_min.card_display |> should.equal(Minimized)
+
+  // view_minimized_dock should render chips when tracks are minimized
+  let _active_dock = track_card.view_minimized_dock(model_min_both.tracks)
+
+  // RestoreAllTracks restores all minimized tracks back to Normal
+  let #(model_restored, _) =
+    rototem_web.update(model_min_both, types.RestoreAllTracks)
+  let all_restored =
+    list.all(model_restored.tracks, fn(t) { t.card_display == Normal })
+  all_restored |> should.equal(True)
 }

@@ -388,6 +388,12 @@ fn update_track_msg(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       #(Model(..model, tracks: updated_tracks), effect.none())
     }
 
+    types.RestoreAllTracks -> {
+      let updated_tracks =
+        list.map(model.tracks, fn(t) { Track(..t, card_display: Normal) })
+      #(Model(..model, tracks: updated_tracks), effect.none())
+    }
+
     types.FloatTrackCard(track_id) -> {
       let next_z = model.next_z_index + 1
       let default_x = 100.0 +. int.to_float(track_id) *. 25.0
@@ -1113,6 +1119,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     | types.ToggleTrackMute(..)
     | types.ToggleTrackDirection(..)
     | types.ToggleTrackMinimize(..)
+    | types.RestoreAllTracks
     | types.FloatTrackCard(..)
     | types.DockTrackCard(..)
     | types.StartDragCard(..)
