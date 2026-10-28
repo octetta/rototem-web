@@ -525,7 +525,7 @@ fn update_master_msg(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         Ok(f) ->
           case f.ext {
             "zip" -> "[" <> f.name <> "] %z"
-            "sk" -> "[" <> f.name <> "] /l"
+            "sk" -> "[" <> f.name <> "] /ls"
             "ks" -> "[" <> f.name <> "] /ks"
             "wav" | "mp3" | "flac" -> "[" <> f.name <> "] /w"
             _ -> "%cat " <> f.name

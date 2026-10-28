@@ -671,4 +671,23 @@ pub fn vfs_files_test() {
   list.length(model_removed.vfs_files) |> should.equal(1)
   let assert Ok(remaining_file) = list.first(model_removed.vfs_files)
   remaining_file.name |> should.equal("melody.sk")
+
+  // Test .sk and .ks auto-command formatting
+  let #(model_sk, _) =
+    rototem_web.update(
+      initial_model,
+      types.VfsFilesUploaded([
+        VfsFile(name: "melody.sk", size: 512, ext: "sk"),
+      ]),
+    )
+  model_sk.console_input |> should.equal("[melody.sk] /ls")
+
+  let #(model_ks, _) =
+    rototem_web.update(
+      initial_model,
+      types.VfsFilesUploaded([
+        VfsFile(name: "filter.ks", size: 128, ext: "ks"),
+      ]),
+    )
+  model_ks.console_input |> should.equal("[filter.ks] /ks")
 }
