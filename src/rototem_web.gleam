@@ -1,3 +1,11 @@
+//// # Rototem Web Main Application Entry
+////
+//// Initializes and runs the `rototem-web` Lustre application. Implements the root TEA loop
+//// (`init`, `update`, `view`) decomposed into clean domain handlers (`update_track_msg`,
+//// `update_master_msg`, `update_console_msg`, `update_ffi_msg`).
+////
+
+import gleam/dict
 import gleam/float
 import gleam/int
 import gleam/list
@@ -6,10 +14,11 @@ import gleam/string
 import lustre
 import lustre/effect.{type Effect}
 import rototem/settings
+import rototem/skode
 import rototem/skred
 import rototem/types.{
-  type AudioFile, type Model, type Msg, type Track, ActiveDrag,
-  ConsoleLog, Floating, Grid, Minimized, Model, Normal, Track,
+  type AudioFile, type Model, type Msg, type Track, ActiveDrag, ConsoleLog,
+  Floating, Grid, Minimized, Model, Normal, Track,
 }
 import rototem/ui
 
@@ -55,7 +64,7 @@ pub fn init(_flags) -> #(Model, Effect(Msg)) {
       selected_device_id: "default",
       active_drag: None,
       next_z_index: 10,
-      status_message: "Ready. Click 'Select Folder' or press Ctrl-~ for Skred Console.",
+      status_message: "Ready. Click 'Folder' or press Ctrl-~ for Skred Console.",
       show_library_modal: False,
       show_console: False,
       console_input: "",
@@ -68,7 +77,6 @@ pub fn init(_flags) -> #(Model, Effect(Msg)) {
       ],
       command_history: [],
       history_index: -1,
-      // Floating & Resizable Console Window
       console_x: 120.0,
       console_y: 80.0,
       console_width: 620.0,
@@ -87,23 +95,45 @@ pub fn init(_flags) -> #(Model, Effect(Msg)) {
       skred.init_engine_effect(),
       skred.list_devices_effect(),
       skred.register_console_toggle_effect(),
+      skred.subscribe_control_plane(types.ControlEventsReceived),
     ])
 
   #(model, effects)
 }
 
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
 fn clamp_float(val: Float, min_val: Float, max_val: Float) -> Float {
-  case val <. min_val {
-    True -> min_val
-    False ->
-      case val >. max_val {
-        True -> max_val
-        False -> val
-      }
-  }
+  float.clamp(val, min: min_val, max: max_val)
 }
 
-// Random sample selection from library using FFI Math.random
+fn update_track(
+  tracks: List(Track),
+  track_id: Int,
+  updater: fn(Track) -> Track,
+) -> List(Track) {
+  list.map(tracks, fn(t) {
+    case t.id == track_id {
+      True -> updater(t)
+      False -> t
+    }
+  })
+}
+
+fn track_control_command(t: Track, run: Bool) -> skode.SkodeCommand {
+  skode.track_control(
+    t.left_voice,
+    t.right_voice,
+    t.volume,
+    t.speed,
+    t.muted,
+    t.reversed,
+    run,
+  )
+}
+
 fn pick_random_sample(files: List(AudioFile)) -> Option(AudioFile) {
   let len = list.length(files)
   case len {
@@ -115,55 +145,44 @@ fn pick_random_sample(files: List(AudioFile)) -> Option(AudioFile) {
   }
 }
 
-pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
+// ---------------------------------------------------------------------------
+// Track Domain Update
+// ---------------------------------------------------------------------------
+
+fn update_track_msg(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
   case msg {
-    // -----------------------------------------------------------------------
-    // Track Operations
-    // -----------------------------------------------------------------------
     types.SelectTrackSample(track_id, file_id) -> {
       let selected_file =
         list.find(model.library, fn(f) { f.id == file_id })
         |> option.from_result
 
       let updated_tracks =
-        list.map(model.tracks, fn(t) {
-          case t.id == track_id {
-            True -> Track(..t, audio_file: selected_file, playing: False)
-            False -> t
-          }
+        update_track(model.tracks, track_id, fn(t) {
+          Track(..t, audio_file: selected_file, playing: False)
         })
 
-      let track_opt = list.find(model.tracks, fn(t) { t.id == track_id })
-      let eff = case selected_file, track_opt {
+      let eff = case
+        selected_file,
+        list.find(model.tracks, fn(t) { t.id == track_id })
+      {
         Some(f), Ok(t) -> {
-          let left_v = track_id * 2
-          let right_v = track_id * 2 + 1
-          let wave_eff = skred.load_track_wave(left_v, right_v, f.path)
-          let ctrl_cmd =
-            skred.format_voice_volume(left_v, right_v, t.volume)
-            <> ";"
-            <> skred.format_voice_speed(left_v, right_v, t.speed)
-            <> ";"
-            <> skred.format_voice_mute(left_v, right_v, t.muted)
-            <> ";"
-            <> skred.format_voice_direction(left_v, right_v, t.reversed)
-            <> ";"
-            <> skred.format_voice_run(left_v, right_v, False)
-          effect.batch([wave_eff, skred.send_command(ctrl_cmd)])
+          let wave_eff =
+            skred.load_track_wave(t.left_voice, t.right_voice, f.path)
+          let ctrl_cmd = track_control_command(t, False)
+          effect.batch([wave_eff, skred.send(ctrl_cmd)])
         }
-        None, Ok(_) -> {
-          let left_v = track_id * 2
-          let right_v = track_id * 2 + 1
+        None, Ok(t) -> {
           effect.batch([
-            skred.load_track_wave(left_v, right_v, ""),
-            skred.send_command(skred.format_voice_run(left_v, right_v, False)),
+            skred.load_track_wave(t.left_voice, t.right_voice, ""),
+            skred.send(skode.stereo_run(t.left_voice, t.right_voice, False)),
           ])
         }
         _, _ -> effect.none()
       }
 
       let status = case selected_file {
-        Some(f) -> "Assigned " <> f.name <> " to Track " <> int.to_string(track_id + 1)
+        Some(f) ->
+          "Assigned " <> f.name <> " to Track " <> int.to_string(track_id + 1)
         None -> "Cleared Track " <> int.to_string(track_id + 1)
       }
 
@@ -188,36 +207,29 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         _ -> {
           let sample = pick_random_sample(model.library)
           let updated_tracks =
-            list.map(model.tracks, fn(t) {
-              case t.id == track_id {
-                True -> Track(..t, audio_file: sample, playing: False)
-                False -> t
-              }
+            update_track(model.tracks, track_id, fn(t) {
+              Track(..t, audio_file: sample, playing: False)
             })
 
-          let track_opt = list.find(model.tracks, fn(t) { t.id == track_id })
-          let eff = case sample, track_opt {
+          let eff = case
+            sample,
+            list.find(model.tracks, fn(t) { t.id == track_id })
+          {
             Some(f), Ok(t) -> {
-              let left_v = track_id * 2
-              let right_v = track_id * 2 + 1
-              let wave_eff = skred.load_track_wave(left_v, right_v, f.path)
-              let ctrl_cmd =
-                skred.format_voice_volume(left_v, right_v, t.volume)
-                <> ";"
-                <> skred.format_voice_speed(left_v, right_v, t.speed)
-                <> ";"
-                <> skred.format_voice_mute(left_v, right_v, t.muted)
-                <> ";"
-                <> skred.format_voice_direction(left_v, right_v, t.reversed)
-                <> ";"
-                <> skred.format_voice_run(left_v, right_v, False)
-              effect.batch([wave_eff, skred.send_command(ctrl_cmd)])
+              let wave_eff =
+                skred.load_track_wave(t.left_voice, t.right_voice, f.path)
+              let ctrl_cmd = track_control_command(t, False)
+              effect.batch([wave_eff, skred.send(ctrl_cmd)])
             }
             _, _ -> effect.none()
           }
 
           let status = case sample {
-            Some(f) -> "Randomized: assigned " <> f.name <> " to Track " <> int.to_string(track_id + 1)
+            Some(f) ->
+              "Randomized: assigned "
+              <> f.name
+              <> " to Track "
+              <> int.to_string(track_id + 1)
             None -> model.status_message
           }
 
@@ -236,34 +248,21 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     }
 
     types.ToggleTrackPlay(track_id) -> {
-      let mut_track = list.find(model.tracks, fn(t) { t.id == track_id })
-      case mut_track {
+      case list.find(model.tracks, fn(t) { t.id == track_id }) {
         Ok(t) -> {
           let new_play = !t.playing
           let updated_tracks =
-            list.map(model.tracks, fn(tr) {
-              case tr.id == track_id {
-                True -> Track(..tr, playing: new_play)
-                False -> tr
-              }
+            update_track(model.tracks, track_id, fn(tr) {
+              Track(..tr, playing: new_play)
             })
           let all_now_playing = list.all(updated_tracks, fn(tr) { tr.playing })
-          // When starting, make sure volume and mute states are restored
           let cmd = case new_play {
-            True ->
-              skred.format_voice_volume(t.left_voice, t.right_voice, t.volume)
-              <> ";"
-              <> skred.format_voice_mute(t.left_voice, t.right_voice, t.muted)
-              <> ";"
-              <> skred.format_voice_direction(t.left_voice, t.right_voice, t.reversed)
-              <> ";"
-              <> skred.format_voice_run(t.left_voice, t.right_voice, True)
-            False ->
-              skred.format_voice_run(t.left_voice, t.right_voice, False)
+            True -> track_control_command(t, True)
+            False -> skode.stereo_run(t.left_voice, t.right_voice, False)
           }
           #(
             Model(..model, tracks: updated_tracks, all_playing: all_now_playing),
-            skred.send_command(cmd),
+            skred.send(cmd),
           )
         }
         Error(_) -> #(model, effect.none())
@@ -272,19 +271,13 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
     types.SetTrackVolume(track_id, vol) -> {
       let clamped = clamp_float(vol, -60.0, 12.0)
-      let mut_track = list.find(model.tracks, fn(t) { t.id == track_id })
       let updated_tracks =
-        list.map(model.tracks, fn(t) {
-          case t.id == track_id {
-            True -> Track(..t, volume: clamped)
-            False -> t
-          }
+        update_track(model.tracks, track_id, fn(t) {
+          Track(..t, volume: clamped)
         })
-      let eff = case mut_track {
-        Ok(t) -> {
-          let cmd = skred.format_voice_volume(t.left_voice, t.right_voice, clamped)
-          skred.send_command(cmd)
-        }
+      let eff = case list.find(model.tracks, fn(t) { t.id == track_id }) {
+        Ok(t) ->
+          skred.send(skode.stereo_volume(t.left_voice, t.right_voice, clamped))
         Error(_) -> effect.none()
       }
       #(Model(..model, tracks: updated_tracks), eff)
@@ -292,85 +285,71 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
     types.SetTrackSpeed(track_id, midi_pitch) -> {
       let clamped = clamp_float(midi_pitch, 0.0, 127.0)
-      let mut_track = list.find(model.tracks, fn(t) { t.id == track_id })
       let updated_tracks =
-        list.map(model.tracks, fn(t) {
-          case t.id == track_id {
-            True -> Track(..t, speed: clamped)
-            False -> t
-          }
+        update_track(model.tracks, track_id, fn(t) {
+          Track(..t, speed: clamped)
         })
-      let eff = case mut_track {
-        Ok(t) -> {
-          let cmd = skred.format_voice_speed(t.left_voice, t.right_voice, clamped)
-          skred.send_command(cmd)
-        }
+      let eff = case list.find(model.tracks, fn(t) { t.id == track_id }) {
+        Ok(t) ->
+          skred.send(skode.stereo_speed(t.left_voice, t.right_voice, clamped))
         Error(_) -> effect.none()
       }
       #(Model(..model, tracks: updated_tracks), eff)
     }
 
     types.StepTrackSpeed(track_id, semitone_offset) -> {
-      let mut_track = list.find(model.tracks, fn(t) { t.id == track_id })
-      case mut_track {
+      case list.find(model.tracks, fn(t) { t.id == track_id }) {
         Ok(t) -> {
           let new_pitch = case semitone_offset == 0.0 {
             True -> 69.0
             False -> clamp_float(t.speed +. semitone_offset, 0.0, 127.0)
           }
           let updated_tracks =
-            list.map(model.tracks, fn(tr) {
-              case tr.id == track_id {
-                True -> Track(..tr, speed: new_pitch)
-                False -> tr
-              }
+            update_track(model.tracks, track_id, fn(tr) {
+              Track(..tr, speed: new_pitch)
             })
-          let cmd = skred.format_voice_speed(t.left_voice, t.right_voice, new_pitch)
-          #(Model(..model, tracks: updated_tracks), skred.send_command(cmd))
+          let cmd = skode.stereo_speed(t.left_voice, t.right_voice, new_pitch)
+          #(Model(..model, tracks: updated_tracks), skred.send(cmd))
         }
         Error(_) -> #(model, effect.none())
       }
     }
 
     types.ToggleTrackMute(track_id) -> {
-      let mut_track = list.find(model.tracks, fn(t) { t.id == track_id })
-      case mut_track {
+      case list.find(model.tracks, fn(t) { t.id == track_id }) {
         Ok(t) -> {
           let new_mute = !t.muted
           let updated_tracks =
-            list.map(model.tracks, fn(tr) {
-              case tr.id == track_id {
-                True -> Track(..tr, muted: new_mute)
-                False -> tr
-              }
+            update_track(model.tracks, track_id, fn(tr) {
+              Track(..tr, muted: new_mute)
             })
-          let cmd = skred.format_voice_mute(t.left_voice, t.right_voice, new_mute)
-          #(Model(..model, tracks: updated_tracks), skred.send_command(cmd))
+          let cmd = skode.stereo_mute(t.left_voice, t.right_voice, new_mute)
+          #(Model(..model, tracks: updated_tracks), skred.send(cmd))
         }
         Error(_) -> #(model, effect.none())
       }
     }
 
     types.ToggleTrackDirection(track_id) -> {
-      let mut_track = list.find(model.tracks, fn(t) { t.id == track_id })
-      case mut_track {
+      case list.find(model.tracks, fn(t) { t.id == track_id }) {
         Ok(t) -> {
           let new_rev = !t.reversed
           let updated_tracks =
-            list.map(model.tracks, fn(tr) {
-              case tr.id == track_id {
-                True -> Track(..tr, reversed: new_rev)
-                False -> tr
-              }
+            update_track(model.tracks, track_id, fn(tr) {
+              Track(..tr, reversed: new_rev)
             })
-          let cmd = skred.format_voice_flip(t.left_voice, t.right_voice)
+          let cmd = skode.stereo_flip(t.left_voice, t.right_voice)
           let status = case new_rev {
-            True -> "Track " <> int.to_string(track_id + 1) <> " flipped to reverse (b1)"
-            False -> "Track " <> int.to_string(track_id + 1) <> " set to forward (b0)"
+            True ->
+              "Track "
+              <> int.to_string(track_id + 1)
+              <> " flipped to reverse (b1)"
+            False ->
+              "Track " <> int.to_string(track_id + 1) <> " set to forward (b0)"
           }
           #(
             Model(..model, tracks: updated_tracks, status_message: status),
-            skred.send_command(cmd),
+            skred.send(cmd),
           )
         }
         Error(_) -> #(model, effect.none())
@@ -379,17 +358,12 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
     types.ToggleTrackMinimize(track_id) -> {
       let updated_tracks =
-        list.map(model.tracks, fn(t) {
-          case t.id == track_id {
-            True -> {
-              let new_disp = case t.card_display {
-                Normal -> Minimized
-                Minimized -> Normal
-              }
-              Track(..t, card_display: new_disp)
-            }
-            False -> t
+        update_track(model.tracks, track_id, fn(t) {
+          let new_disp = case t.card_display {
+            Normal -> Minimized
+            Minimized -> Normal
           }
+          Track(..t, card_display: new_disp)
         })
       #(Model(..model, tracks: updated_tracks), effect.none())
     }
@@ -400,22 +374,19 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       let default_y = 70.0 +. int.to_float(track_id) *. 25.0
 
       let updated_tracks =
-        list.map(model.tracks, fn(t) {
-          case t.id == track_id {
-            True -> Track(..t, card_mode: Floating(default_x, default_y, next_z))
-            False -> t
-          }
+        update_track(model.tracks, track_id, fn(t) {
+          Track(..t, card_mode: Floating(default_x, default_y, next_z))
         })
-      #(Model(..model, tracks: updated_tracks, next_z_index: next_z), effect.none())
+      #(
+        Model(..model, tracks: updated_tracks, next_z_index: next_z),
+        effect.none(),
+      )
     }
 
     types.DockTrackCard(track_id) -> {
       let updated_tracks =
-        list.map(model.tracks, fn(t) {
-          case t.id == track_id {
-            True -> Track(..t, card_mode: Grid)
-            False -> t
-          }
+        update_track(model.tracks, track_id, fn(t) {
+          Track(..t, card_mode: Grid)
         })
       #(Model(..model, tracks: updated_tracks), effect.none())
     }
@@ -423,14 +394,10 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     types.StartDragCard(track_id, card_x, card_y, mouse_x, mouse_y) -> {
       let next_z = model.next_z_index + 1
       let updated_tracks =
-        list.map(model.tracks, fn(t) {
-          case t.id == track_id {
-            True ->
-              case t.card_mode {
-                Floating(x, y, _) -> Track(..t, card_mode: Floating(x, y, next_z))
-                Grid -> t
-              }
-            False -> t
+        update_track(model.tracks, track_id, fn(t) {
+          case t.card_mode {
+            Floating(x, y, _) -> Track(..t, card_mode: Floating(x, y, next_z))
+            Grid -> t
           }
         })
 
@@ -463,15 +430,11 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           let new_y = float.max(0.0, drag.start_card_y +. dy)
 
           let updated_tracks =
-            list.map(model.tracks, fn(t) {
-              case t.id == drag.track_id {
-                True ->
-                  case t.card_mode {
-                    Floating(_, _, z) ->
-                      Track(..t, card_mode: Floating(new_x, new_y, z))
-                    Grid -> t
-                  }
-                False -> t
+            update_track(model.tracks, drag.track_id, fn(t) {
+              case t.card_mode {
+                Floating(_, _, z) ->
+                  Track(..t, card_mode: Floating(new_x, new_y, z))
+                Grid -> t
               }
             })
           #(Model(..model, tracks: updated_tracks), effect.none())
@@ -484,9 +447,16 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       #(Model(..model, active_drag: None), effect.none())
     }
 
-    // -----------------------------------------------------------------------
-    // Master Operations
-    // -----------------------------------------------------------------------
+    _ -> #(model, effect.none())
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Master Workstation Domain Update
+// ---------------------------------------------------------------------------
+
+fn update_master_msg(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
+  case msg {
     types.PickDirectory -> {
       #(
         Model(..model, status_message: "Opening directory picker..."),
@@ -501,21 +471,15 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         list.map(model.tracks, fn(t) { Track(..t, playing: new_all_playing) })
       let cmd = case new_all_playing {
         True ->
-          list.map(model.tracks, fn(t) {
-            skred.format_voice_volume(t.left_voice, t.right_voice, t.volume)
-            <> ";"
-            <> skred.format_voice_mute(t.left_voice, t.right_voice, t.muted)
-            <> ";"
-            <> skred.format_voice_direction(t.left_voice, t.right_voice, t.reversed)
-            <> ";"
-            <> "v" <> int.to_string(t.left_voice) <> "l1;v" <> int.to_string(t.right_voice) <> "l1"
-          })
-          |> string.join(";")
+          skode.Bundle(
+            list.map(model.tracks, fn(t) { track_control_command(t, True) }),
+          )
         False ->
-          list.map(model.tracks, fn(t) {
-            "v" <> int.to_string(t.left_voice) <> "l0;v" <> int.to_string(t.right_voice) <> "l0"
-          })
-          |> string.join(";")
+          skode.Bundle(
+            list.map(model.tracks, fn(t) {
+              skode.stereo_run(t.left_voice, t.right_voice, False)
+            }),
+          )
       }
       let status = case new_all_playing {
         True -> "Started playback on all tracks"
@@ -528,7 +492,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           tracks: updated_tracks,
           status_message: status,
         ),
-        skred.send_command(cmd),
+        skred.send(cmd),
       )
     }
 
@@ -537,21 +501,15 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         list.map(model.tracks, fn(t) { Track(..t, playing: playing) })
       let cmd = case playing {
         True ->
-          list.map(model.tracks, fn(t) {
-            skred.format_voice_volume(t.left_voice, t.right_voice, t.volume)
-            <> ";"
-            <> skred.format_voice_mute(t.left_voice, t.right_voice, t.muted)
-            <> ";"
-            <> skred.format_voice_direction(t.left_voice, t.right_voice, t.reversed)
-            <> ";"
-            <> "v" <> int.to_string(t.left_voice) <> "l1;v" <> int.to_string(t.right_voice) <> "l1"
-          })
-          |> string.join(";")
+          skode.Bundle(
+            list.map(model.tracks, fn(t) { track_control_command(t, True) }),
+          )
         False ->
-          list.map(model.tracks, fn(t) {
-            "v" <> int.to_string(t.left_voice) <> "l0;v" <> int.to_string(t.right_voice) <> "l0"
-          })
-          |> string.join(";")
+          skode.Bundle(
+            list.map(model.tracks, fn(t) {
+              skode.stereo_run(t.left_voice, t.right_voice, False)
+            }),
+          )
       }
       let status = case playing {
         True -> "Started playback on all tracks"
@@ -564,7 +522,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           tracks: updated_tracks,
           status_message: status,
         ),
-        skred.send_command(cmd),
+        skred.send(cmd),
       )
     }
 
@@ -581,18 +539,10 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
               let updated_t = Track(..t, audio_file: sample, playing: False)
               let eff = case sample {
                 Some(f) -> {
-                  let wave_eff = skred.load_track_wave(t.left_voice, t.right_voice, f.path)
-                  let ctrl_cmd =
-                    skred.format_voice_volume(t.left_voice, t.right_voice, t.volume)
-                    <> ";"
-                    <> skred.format_voice_speed(t.left_voice, t.right_voice, t.speed)
-                    <> ";"
-                    <> skred.format_voice_mute(t.left_voice, t.right_voice, t.muted)
-                    <> ";"
-                    <> skred.format_voice_direction(t.left_voice, t.right_voice, t.reversed)
-                    <> ";"
-                    <> skred.format_voice_run(t.left_voice, t.right_voice, False)
-                  effect.batch([wave_eff, skred.send_command(ctrl_cmd)])
+                  let wave_eff =
+                    skred.load_track_wave(t.left_voice, t.right_voice, f.path)
+                  let ctrl_cmd = track_control_command(t, False)
+                  effect.batch([wave_eff, skred.send(ctrl_cmd)])
                 }
                 None -> effect.none()
               }
@@ -631,8 +581,10 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
     types.SetMasterVolume(vol) -> {
       let clamped = clamp_float(vol, -60.0, 12.0)
-      let cmd = skred.format_master_volume(clamped)
-      #(Model(..model, master_volume: clamped), skred.send_command(cmd))
+      #(
+        Model(..model, master_volume: clamped),
+        skred.send(skode.SetMasterVolume(clamped)),
+      )
     }
 
     types.SelectOutputDevice(device_id) -> {
@@ -647,7 +599,10 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     }
 
     types.ToggleLibraryModal -> {
-      #(Model(..model, show_library_modal: !model.show_library_modal), effect.none())
+      #(
+        Model(..model, show_library_modal: !model.show_library_modal),
+        effect.none(),
+      )
     }
 
     types.ToggleTheme -> {
@@ -659,7 +614,8 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     }
 
     types.RemoveAudioFile(file_id) -> {
-      let updated_library = list.filter(model.library, fn(f) { f.id != file_id })
+      let updated_library =
+        list.filter(model.library, fn(f) { f.id != file_id })
       let affected_tracks =
         list.filter(model.tracks, fn(t) {
           case t.audio_file {
@@ -677,11 +633,17 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         })
       let stop_effects =
         list.map(affected_tracks, fn(t) {
-          skred.send_command(
-            skred.format_voice_run(t.left_voice, t.right_voice, False)
-            <> ";"
-            <> "v" <> int.to_string(t.left_voice) <> "w82;"
-            <> "v" <> int.to_string(t.right_voice) <> "w82",
+          skred.send(
+            skode.Bundle([
+              skode.stereo_run(t.left_voice, t.right_voice, False),
+              skode.Raw(
+                "v"
+                <> int.to_string(t.left_voice)
+                <> "w82;v"
+                <> int.to_string(t.right_voice)
+                <> "w82",
+              ),
+            ]),
           )
         })
       let remove_eff = skred.remove_audio_file(file_id)
@@ -697,7 +659,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     }
 
     types.ClearAudioLibrary -> {
-      let stop_all = skred.send_command("*l0;S-1;V0")
+      let stop_all = skred.send(skode.StopAll)
       let clear_vfs = skred.clear_audio_library()
       let updated_tracks =
         list.map(model.tracks, fn(t) {
@@ -715,9 +677,20 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       )
     }
 
-    // -----------------------------------------------------------------------
-    // Skred Console / REPL (Ctrl-~)
-    // -----------------------------------------------------------------------
+    types.SetMobileActiveTrack(idx) -> {
+      #(Model(..model, mobile_active_track: idx), effect.none())
+    }
+
+    _ -> #(model, effect.none())
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Console REPL Domain Update
+// ---------------------------------------------------------------------------
+
+fn update_console_msg(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
+  case msg {
     types.ToggleConsole -> {
       #(Model(..model, show_console: !model.show_console), effect.none())
     }
@@ -731,7 +704,10 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       case trimmed {
         "" -> #(model, effect.none())
         cmd -> {
-          let history = [cmd, ..list.filter(model.command_history, fn(c) { c != cmd })]
+          let history = [
+            cmd,
+            ..list.filter(model.command_history, fn(c) { c != cmd })
+          ]
           #(
             Model(
               ..model,
@@ -756,11 +732,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
             |> option.from_result
             |> option.unwrap(model.console_input)
           #(
-            Model(
-              ..model,
-              history_index: next_idx,
-              console_input: picked_cmd,
-            ),
+            Model(..model, history_index: next_idx, console_input: picked_cmd),
             effect.none(),
           )
         }
@@ -778,19 +750,12 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
             |> option.from_result
             |> option.unwrap("")
           #(
-            Model(
-              ..model,
-              history_index: next_idx,
-              console_input: picked_cmd,
-            ),
+            Model(..model, history_index: next_idx, console_input: picked_cmd),
             effect.none(),
           )
         }
         False -> {
-          #(
-            Model(..model, history_index: -1, console_input: ""),
-            effect.none(),
-          )
+          #(Model(..model, history_index: -1, console_input: ""), effect.none())
         }
       }
     }
@@ -826,10 +791,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           let dy = mouse_y -. model.console_drag_mouse_y
           let new_x = float.max(0.0, model.console_drag_start_x +. dx)
           let new_y = float.max(0.0, model.console_drag_start_y +. dy)
-          #(
-            Model(..model, console_x: new_x, console_y: new_y),
-            effect.none(),
-          )
+          #(Model(..model, console_x: new_x, console_y: new_y), effect.none())
         }
         False -> #(model, effect.none())
       }
@@ -852,13 +814,16 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       )
     }
 
-    types.SetMobileActiveTrack(idx) -> {
-      #(Model(..model, mobile_active_track: idx), effect.none())
-    }
+    _ -> #(model, effect.none())
+  }
+}
 
-    // -----------------------------------------------------------------------
-    // FFI Callbacks
-    // -----------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// FFI & Hardware Domain Update
+// ---------------------------------------------------------------------------
+
+fn update_ffi_msg(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
+  case msg {
     types.FilesLoaded(new_files) -> {
       let count = list.length(new_files)
       let merged = list.append(model.library, new_files)
@@ -866,7 +831,9 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         Model(
           ..model,
           library: merged,
-          status_message: "Loaded " <> int.to_string(count) <> " audio files into library.",
+          status_message: "Loaded "
+            <> int.to_string(count)
+            <> " audio files into library.",
         ),
         effect.none(),
       )
@@ -915,7 +882,8 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           let wave_effects =
             list.filter_map(updated_tracks, fn(t) {
               case t.audio_file {
-                Some(f) -> Ok(skred.load_track_wave(t.left_voice, t.right_voice, f.path))
+                Some(f) ->
+                  Ok(skred.load_track_wave(t.left_voice, t.right_voice, f.path))
                 None -> Error(Nil)
               }
             })
@@ -967,8 +935,106 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       }
       #(Model(..model, recording: rec, status_message: status), effect.none())
     }
+
+    types.ControlEventsReceived(events) -> {
+      // Fold chronologically over control plane events to track voice playback
+      let voice_updates =
+        list.fold(events, dict.new(), fn(acc, ev) {
+          case ev {
+            types.VoiceTrigger(v, _) if v >= 0 && v < 16 ->
+              dict.insert(acc, v / 2, True)
+            types.VoiceRelease(v) if v >= 0 && v < 16 ->
+              dict.insert(acc, v / 2, False)
+            types.VoiceFinished(v) if v >= 0 && v < 16 ->
+              dict.insert(acc, v / 2, False)
+            _ -> acc
+          }
+        })
+
+      case dict.is_empty(voice_updates) {
+        True -> #(model, effect.none())
+        False -> {
+          let updated_tracks =
+            list.map(model.tracks, fn(t) {
+              case dict.get(voice_updates, t.id) {
+                Ok(new_state) -> Track(..t, playing: new_state)
+                Error(_) -> t
+              }
+            })
+          let any_now_playing = list.any(updated_tracks, fn(t) { t.playing })
+          #(
+            Model(..model, tracks: updated_tracks, all_playing: any_now_playing),
+            effect.none(),
+          )
+        }
+      }
+    }
+
+    _ -> #(model, effect.none())
   }
 }
+
+// ---------------------------------------------------------------------------
+// Main Update Router
+// ---------------------------------------------------------------------------
+
+pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
+  case msg {
+    types.SelectTrackSample(..)
+    | types.RandomTrackSample(..)
+    | types.ToggleTrackPlay(..)
+    | types.SetTrackVolume(..)
+    | types.SetTrackSpeed(..)
+    | types.StepTrackSpeed(..)
+    | types.ToggleTrackMute(..)
+    | types.ToggleTrackDirection(..)
+    | types.ToggleTrackMinimize(..)
+    | types.FloatTrackCard(..)
+    | types.DockTrackCard(..)
+    | types.StartDragCard(..)
+    | types.DragCard(..)
+    | types.EndDragCard -> update_track_msg(model, msg)
+
+    types.PickDirectory
+    | types.ToggleAllPlay
+    | types.SetAllPlay(..)
+    | types.RandomizeAllSamples
+    | types.SaveProjectZip
+    | types.TriggerLoadZip
+    | types.SetMasterVolume(..)
+    | types.SelectOutputDevice(..)
+    | types.ToggleRecord
+    | types.ToggleLibraryModal
+    | types.ToggleTheme
+    | types.RemoveAudioFile(..)
+    | types.ClearAudioLibrary
+    | types.SetMobileActiveTrack(..) -> update_master_msg(model, msg)
+
+    types.ToggleConsole
+    | types.SetConsoleInput(..)
+    | types.SubmitConsoleCommand
+    | types.ConsoleHistoryUp
+    | types.ConsoleHistoryDown
+    | types.ConsoleResultReceived(..)
+    | types.ClearConsole
+    | types.StartDragConsole(..)
+    | types.DragConsole(..)
+    | types.EndDragConsole
+    | types.ResetConsolePosition -> update_console_msg(model, msg)
+
+    types.FilesLoaded(..)
+    | types.ZipProjectLoaded(..)
+    | types.AudioDevicesListed(..)
+    | types.StatusUpdated(..)
+    | types.EngineInitialized(..)
+    | types.RecordingStateChanged(..)
+    | types.ControlEventsReceived(..) -> update_ffi_msg(model, msg)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Application Entry Point
+// ---------------------------------------------------------------------------
 
 pub fn main() {
   let app = lustre.application(init, update, ui.view)

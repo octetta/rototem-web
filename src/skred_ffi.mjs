@@ -16,6 +16,13 @@ let recordedChunks = [];
 let consoleCallback = null;
 let capturedStdout = [];
 
+// Control Plane Event Subscriptions
+let currentEventSubscription = null;
+let eventPumpStarted = false;
+let wasmEventsBuffer = null;
+const EVENT_SIZE = 72; // sizeof(skred_control_event_t)
+const MAX_EVENTS_BATCH = 64;
+
 // In-memory store of loaded audio file buffers for ZIP packaging
 const fileStore = new Map();
 
@@ -122,6 +129,18 @@ export function initEngine(callback) {
         executeSkredCommand(`v${right} p1 n69 B1 t1 0 1 1 a0`);
       }
 
+      // 4. Enable voice lifecycle events on voices 0..15 (for real-time feedback)
+      if (typeof win.Module._voice_control_events_set === "function") {
+        for (let i = 0; i < 16; i++) {
+          win.Module._voice_control_events_set(i, 1);
+        }
+      }
+      for (let i = 0; i < 16; i++) {
+        executeSkredCommand(`v${i} vc1`);
+      }
+
+      startWasmEventPump(win.Module);
+
       flushCommandQueue();
       if (callback) callback(engineStarted);
     } catch (err) {
@@ -192,6 +211,7 @@ export function ensureEngineRunning() {
       if (res === 0) {
         engineStarted = true;
         if (typeof M._skred_logger === "function") M._skred_logger(1);
+        startWasmEventPump(M);
         return true;
       }
     }
@@ -211,6 +231,79 @@ if (typeof win.addEventListener === "function") {
   win.addEventListener("touchstart", unlock, { passive: true });
   win.addEventListener("keydown", unlock, { passive: true });
   win.addEventListener("click", unlock, { passive: true });
+}
+
+function startWasmEventPump(M) {
+  if (!M || typeof M._skred_control_event_poll !== "function") return;
+  if (!wasmEventsBuffer && typeof M._malloc === "function") {
+    wasmEventsBuffer = M._malloc(MAX_EVENTS_BATCH * EVENT_SIZE);
+  }
+  if (eventPumpStarted) return;
+  eventPumpStarted = true;
+
+  function pump() {
+    if (
+      currentEventSubscription &&
+      M &&
+      typeof M._skred_control_event_poll === "function" &&
+      wasmEventsBuffer &&
+      M.HEAPU8
+    ) {
+      const count = M._skred_control_event_poll(wasmEventsBuffer, MAX_EVENTS_BATCH);
+      if (count > 0) {
+        const batch = [];
+        const dv = new DataView(M.HEAPU8.buffer, wasmEventsBuffer, count * EVENT_SIZE);
+        for (let i = 0; i < count; i++) {
+          const off = i * EVENT_SIZE;
+          const type = dv.getUint32(off, true);
+          const seq = dv.getUint32(off + 16, true);
+          const voice = dv.getInt32(off + 24, true);
+          const pattern = dv.getInt32(off + 28, true);
+          const step = dv.getInt32(off + 32, true);
+          const id = dv.getInt32(off + 40, true);
+          const val0 = dv.getFloat64(off + 48, true);
+          const val1 = dv.getFloat64(off + 56, true);
+          const val2 = dv.getFloat64(off + 64, true);
+          batch.push({
+            t: type,
+            seq: seq,
+            v: voice,
+            p: pattern,
+            s: step,
+            id: id,
+            vals: [val0, val1, val2],
+          });
+        }
+        try {
+          currentEventSubscription(batch);
+        } catch (err) {
+          console.error("[rototem-web] Error dispatching event batch to Lustre:", err);
+        }
+      }
+    }
+    const schedule =
+      typeof requestAnimationFrame !== "undefined"
+        ? requestAnimationFrame
+        : (cb) => setTimeout(cb, 16);
+    schedule(pump);
+  }
+
+  const schedule =
+    typeof requestAnimationFrame !== "undefined"
+      ? requestAnimationFrame
+      : (cb) => setTimeout(cb, 16);
+  schedule(pump);
+}
+
+export function subscribeEvents(onBatch) {
+  currentEventSubscription = onBatch;
+  const M = getWasmModule();
+  if (M) {
+    startWasmEventPump(M);
+  }
+  return () => {
+    currentEventSubscription = null;
+  };
 }
 
 function flushCommandQueue() {
@@ -240,13 +333,115 @@ function executeSkredCommand(cmd) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Continuous Audio Parameter Throttling via requestAnimationFrame
+// ---------------------------------------------------------------------------
+const pendingContinuousCommands = new Map();
+let continuousRafId = null;
+
+const scheduleRaf =
+  typeof requestAnimationFrame === "function"
+    ? requestAnimationFrame
+    : (fn) => setTimeout(fn, 16);
+const cancelRaf =
+  typeof cancelAnimationFrame === "function"
+    ? cancelAnimationFrame
+    : clearTimeout;
+
+function getContinuousKey(cmd) {
+  if (typeof cmd !== "string") return null;
+  const trimmed = cmd.replace(/\s+/g, "");
+
+  // Master volume parameter: ;V...; or V...
+  if (/^;?V[-0-9.]+;?$/.test(trimmed)) {
+    return "master_volume";
+  }
+
+  // Stereo voice volume parameter: v0a...;v1a...
+  const volMatch = /^v(\d+)a([-\d.]+);v(\d+)a([-\d.]+)$/.exec(trimmed);
+  if (volMatch) {
+    return `vol:${volMatch[1]},${volMatch[3]}`;
+  }
+
+  // Stereo voice pitch/speed parameter: v0n...;v1n...
+  const pitchMatch = /^v(\d+)n([-\d.]+);v(\d+)n([-\d.]+)$/.exec(trimmed);
+  if (pitchMatch) {
+    return `pitch:${pitchMatch[1]},${pitchMatch[3]}`;
+  }
+
+  return null;
+}
+
+export function flushContinuousCommands() {
+  if (continuousRafId !== null) {
+    cancelRaf(continuousRafId);
+    continuousRafId = null;
+  }
+  if (pendingContinuousCommands.size === 0) return;
+  for (const cmd of pendingContinuousCommands.values()) {
+    executeSkredCommand(cmd);
+  }
+  pendingContinuousCommands.clear();
+}
+
 export function sendCommand(cmd) {
   const M = getWasmModule();
   if (!M) {
     commandQueue.push(cmd);
     return;
   }
-  executeSkredCommand(cmd);
+
+  const key = getContinuousKey(cmd);
+  if (key) {
+    // Coalesce continuous slider events to at most one update per frame
+    pendingContinuousCommands.set(key, cmd);
+    if (continuousRafId === null) {
+      continuousRafId = scheduleRaf(() => {
+        continuousRafId = null;
+        for (const c of pendingContinuousCommands.values()) {
+          executeSkredCommand(c);
+        }
+        pendingContinuousCommands.clear();
+      });
+    }
+  } else {
+    // Discrete command: immediately flush pending continuous updates first to preserve order
+    flushContinuousCommands();
+    executeSkredCommand(cmd);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Pointer Capture FFI Helpers (Prevent event drop during fast dragging)
+// ---------------------------------------------------------------------------
+export function capturePointer(event) {
+  if (!event) return;
+  const target = event.currentTarget || event.target;
+  if (
+    target &&
+    typeof target.setPointerCapture === "function" &&
+    event.pointerId !== undefined
+  ) {
+    try {
+      target.setPointerCapture(event.pointerId);
+    } catch (_) {}
+  }
+}
+
+export function releasePointer(event) {
+  if (!event) return;
+  const target = event.currentTarget || event.target;
+  if (
+    target &&
+    typeof target.releasePointerCapture === "function" &&
+    event.pointerId !== undefined
+  ) {
+    try {
+      if (typeof target.hasPointerCapture === "function" && target.hasPointerCapture(event.pointerId)) {
+        target.releasePointerCapture(event.pointerId);
+      }
+    } catch (_) {}
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -255,6 +450,7 @@ export function sendCommand(cmd) {
 export function evalCommand(cmd, callback) {
   ensureAudioContext();
   ensureEngineRunning();
+  flushContinuousCommands();
   const M = getWasmModule();
   if (!M) {
     if (callback) callback(cmd, -1, "Skred WASM engine is not yet initialized.");

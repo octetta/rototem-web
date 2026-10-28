@@ -1,29 +1,61 @@
+//// # Rototem Domain Types & Messages
+////
+//// Defines the core domain models, state containers, and action messages for `rototem-web`
+//// according to The Elm Architecture (TEA) in Lustre.
+////
+
 import gleam/option.{type Option}
 
-pub type AudioFile {
-  AudioFile(
-    id: String,
-    name: String,
-    path: String,
-    size: Int,
-  )
+/// Real-time control plane notifications emitted by Skred's audio engine.
+pub type SkredEvent {
+  /// Voice triggered by command, pad, or sequencer (voice 0..255, velocity 0.0..1.0)
+  VoiceTrigger(voice: Int, velocity: Float)
+  /// Voice release / note-off
+  VoiceRelease(voice: Int)
+  /// Voice playback finished naturally (envelope or wave end)
+  VoiceFinished(voice: Int)
+  /// Sequencer pattern step reached (pattern index, step index 0..15)
+  PatternStep(pattern: Int, step: Int)
+  /// Sequencer pattern began playback
+  PatternStart(pattern: Int)
+  /// Sequencer pattern finished its cycle
+  PatternEnd(pattern: Int)
+  /// Global tempo changed (in BPM)
+  TempoChange(tempo: Float)
+  /// Pattern mute state toggled
+  MuteChange(pattern: Int, muted: Bool)
+  /// Custom user marker event emitted via Skode "ce id, a, b, c"
+  UserEvent(id: Int, a: Float, b: Float, c: Float)
+  /// Other control plane event
+  OtherEvent(type_id: Int)
 }
 
+/// Represents an audio sample loaded into the in-memory or VFS library.
+pub type AudioFile {
+  AudioFile(id: String, name: String, path: String, size: Int)
+}
+
+/// Positioning mode for a track card in the UI workspace.
 pub type CardMode {
+  /// Card is docked inside the standard CSS auto-fitting responsive grid.
   Grid
+  /// Card is popped out into the floating overlay layer with explicit coordinates.
   Floating(x: Float, y: Float, z_index: Int)
 }
 
+/// Visual expansion state of a track card.
 pub type CardDisplay {
   Normal
   Minimized
 }
 
+/// UI color theme selection.
 pub type Theme {
   Dark
   Light
 }
 
+/// Represents one of the 8 stereo track channels (16 underlying voices).
 pub type Track {
   Track(
     id: Int,
@@ -41,10 +73,12 @@ pub type Track {
   )
 }
 
+/// Represents an output audio playback hardware device reported by Web Audio.
 pub type AudioDevice {
   AudioDevice(id: String, label: String)
 }
 
+/// Represents the active drag gesture state for floating track cards.
 pub type ActiveDrag {
   ActiveDrag(
     track_id: Int,
@@ -55,14 +89,12 @@ pub type ActiveDrag {
   )
 }
 
+/// A line of execution history and stdout output in the Skred diagnostic console.
 pub type ConsoleLog {
-  ConsoleLog(
-    cmd: String,
-    ret: Int,
-    response: String,
-  )
+  ConsoleLog(cmd: String, ret: Int, response: String)
 }
 
+/// Complete application state container for the Lustre runtime.
 pub type Model {
   Model(
     tracks: List(Track),
@@ -99,6 +131,7 @@ pub type Model {
   )
 }
 
+/// TEA Action Messages dispatched by UI events, timers, and FFI effects.
 pub type Msg {
   // Track Actions
   SelectTrackSample(track_id: Int, file_id: String)
@@ -112,7 +145,13 @@ pub type Msg {
   ToggleTrackMinimize(track_id: Int)
   FloatTrackCard(track_id: Int)
   DockTrackCard(track_id: Int)
-  StartDragCard(track_id: Int, card_x: Float, card_y: Float, mouse_x: Float, mouse_y: Float)
+  StartDragCard(
+    track_id: Int,
+    card_x: Float,
+    card_y: Float,
+    mouse_x: Float,
+    mouse_y: Float,
+  )
   DragCard(mouse_x: Float, mouse_y: Float)
   EndDragCard
 
@@ -154,4 +193,5 @@ pub type Msg {
   StatusUpdated(msg: String)
   EngineInitialized(success: Bool)
   RecordingStateChanged(recording: Bool)
+  ControlEventsReceived(events: List(SkredEvent))
 }

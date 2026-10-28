@@ -1,12 +1,17 @@
+//// # Project Settings Serialization & JSON Decoders
+////
+//// Encodes and decodes complete `rototem-web` project configurations (version, format,
+//// master volume, track voice parameters, and floating layout positions) for ZIP persistence.
+////
+
 import gleam/dynamic/decode
 import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
-import rototem/types.{
-  type Track, Floating, Grid, Minimized, Normal,
-}
+import rototem/types.{type Track, Floating, Grid, Minimized, Normal}
 
+/// Flat serialized record of a track's audio state and layout position for JSON saving.
 pub type SavedTrack {
   SavedTrack(
     id: Int,
@@ -23,6 +28,7 @@ pub type SavedTrack {
   )
 }
 
+/// Root serialized project container holding metadata, master volume, and track settings.
 pub type SavedProject {
   SavedProject(
     format: String,
@@ -32,10 +38,8 @@ pub type SavedProject {
   )
 }
 
-pub fn serialize_project(
-  master_volume: Float,
-  tracks: List(Track),
-) -> String {
+/// Serializes the current master volume and track configurations into a JSON formatted string.
+pub fn serialize_project(master_volume: Float, tracks: List(Track)) -> String {
   let track_objects =
     list.map(tracks, fn(t) {
       let #(is_floating, x, y) = case t.card_mode {
@@ -77,7 +81,11 @@ pub fn serialize_project(
 
 fn saved_track_decoder() -> decode.Decoder(SavedTrack) {
   use id <- decode.field("id", decode.int)
-  use sample_name <- decode.optional_field("sample_name", None, decode.optional(decode.string))
+  use sample_name <- decode.optional_field(
+    "sample_name",
+    None,
+    decode.optional(decode.string),
+  )
   use volume <- decode.optional_field("volume", 0.8, decode.float)
   use speed <- decode.optional_field("speed", 69.0, decode.float)
   use muted <- decode.optional_field("muted", False, decode.bool)
@@ -107,16 +115,16 @@ fn project_decoder() -> decode.Decoder(SavedProject) {
   use format <- decode.optional_field("format", "rototem-web", decode.string)
   use version <- decode.optional_field("version", 1, decode.int)
   use master_volume <- decode.optional_field("master_volume", 0.8, decode.float)
-  use tracks <- decode.optional_field("tracks", [], decode.list(saved_track_decoder()))
+  use tracks <- decode.optional_field(
+    "tracks",
+    [],
+    decode.list(saved_track_decoder()),
+  )
 
-  decode.success(SavedProject(
-    format:,
-    version:,
-    master_volume:,
-    tracks:,
-  ))
+  decode.success(SavedProject(format:, version:, master_volume:, tracks:))
 }
 
+/// Decodes a serialized project JSON string into a structured `SavedProject` record.
 pub fn decode_project(json_string: String) -> Result(SavedProject, String) {
   json.parse(json_string, project_decoder())
   |> result.map_error(fn(_err) { "Failed to decode project JSON" })
