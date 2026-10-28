@@ -487,3 +487,36 @@ pub fn variable(idx: Int) -> SkodeCommand {
 pub fn stream(idx: Int) -> SkodeCommand {
   StreamTarget(idx)
 }
+
+/// Constructs an `n>d` note-to-data conversion command that populates the active
+/// data buffer with parsed note numbers, slurs, ties, and rests: `[ notation ] n>d`.
+pub fn note_to_data(notation: String) -> SkodeCommand {
+  Raw("[ " <> string.trim(notation) <> " ] n>d")
+}
+
+/// Constructs a note stream assignment command via `n>d /SS`:
+/// `[ notation ] n>d /SS {stream_id}`.
+pub fn note_stream(notation: String, stream_id: Int) -> SkodeCommand {
+  Raw(
+    "[ " <> string.trim(notation) <> " ] n>d /SS " <> int.to_string(stream_id),
+  )
+}
+
+/// Constructs a k-synth array evaluation command: `[ code ] ks`.
+pub fn ksynth_eval(code: String) -> SkodeCommand {
+  Raw("[ " <> string.trim(code) <> " ] ks")
+}
+
+/// Evaluates k-synth code and loads the resulting vector into Skred's data buffer:
+/// `[ code ] ks k>d`.
+pub fn ksynth_to_data(code: String) -> SkodeCommand {
+  Raw("[ " <> string.trim(code) <> " ] ks k>d")
+}
+
+/// Evaluates k-synth code and renders the resulting vector directly into a playable wavetable slot:
+/// `[ code ] ks {wave_slot} k>w`.
+pub fn ksynth_to_wavetable(code: String, wave_slot: Int) -> SkodeCommand {
+  Raw(
+    "[ " <> string.trim(code) <> " ] ks " <> int.to_string(wave_slot) <> " k>w",
+  )
+}

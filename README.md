@@ -49,6 +49,11 @@
 | **Beat Deferrals** | `~4 ... ;` | Tempo-relative duration in ticks/steps |
 | **Comments** | `# comment text` | In-band documentation comments |
 | **Macro Buffers** | `eR`, `eRR`, `e!`, `e?`, `e>` | Numeric indexed macro loops and buffer storage |
+| **Note Notation (`n>d`)** | `[ C3 . - ~E3 - ] n>d` | Music notation string compiler into active data buffer |
+| **Stream Note Assignment** | `[ notes ] n>d /SS 1` | Compiles note string directly into sequencer/modulation stream |
+| **K-Synth Array Evaluation** | `[ 1 2 3 ] ks` or `k!` | Evaluates embedded k-synth vector array language expressions |
+| **K-Synth to Data / Wave** | `k>d`, `k>w <slot>` | Copies k-synth vector to data array or renders to wavetable |
+| **Data / Wave to K-Synth** | `d>k`, `w>k` | Bi-directional bridge feeding Skred data or wavetable into k-synth |
 
 ### Example Usage in Gleam
 
@@ -83,6 +88,14 @@ let cmd = skode.track_control(
   reversed: False,
   run: True,
 )
+
+// 4. Music notation mini-language (n>d):
+let melody = skode.note_stream("Bb1 Bb1 Bb2 Bb1  Ab1 - Ab1 -", 1)
+// Compiles to: "[ Bb1 Bb1 Bb2 Bb1  Ab1 - Ab1 - ] n>d /SS 1"
+
+// 5. K-synth vector array language:
+let wavetable = skode.ksynth_to_wavetable("sin 2*pi*!4096%4096", 50)
+// Compiles to: "[ sin 2*pi*!4096%4096 ] ks 50 k>w"
 ```
 
 ---
@@ -238,13 +251,29 @@ While `rototem-web` currently serves as the **R&D proving ground and integration
 
 **The Ambition**: Give Skred an expressive, browser-first live coding environment where sound sculptors and live performers can compose rhythms, sculpt wavetables, and modulate parameters in real time through concise, rhythmic code that updates seamlessly without breaking musical flow.
 
-Inspired by **Strudel** (the browser-based TidalCycles live coding environment), we envision bringing live coding to Skred by combining the mathematical elegance of pattern mini-notations with Skred's low-latency DSP engine:
+Inspired by **Strudel** (the browser-based TidalCycles live coding environment), we envision bringing live coding to Skred by combining the mathematical elegance of pattern mini-notations with Skred's low-latency DSP engine.
+
+Crucially, **Skred already contains two powerful embedded domain-specific languages** waiting to be connected to this reactive UI:
+
+1. 🎼 **The `n>d` Music Notation Mini-Language**:
+   - Rather than having to invent a note parser from scratch in JavaScript or Gleam, Skred embeds an internal music notation compiler via `[ ... ] n>d`.
+   - Natively parses space-delimited note names (`C4`, `F#2`, `Bb1`, `Db-1`), octave indicators, ties (`.`, `_`), rests (`-`, `~`, `R`), and slurs/legato (`~E3`).
+   - Outputs directly into the active ANDS data buffer and routes instantly to sequencer pitch streams via `/SS` (e.g. `[ Bb1 Bb1 Bb2 Bb1 - Ab1 - ] n>d /SS 1`).
+   - A Strudel-like pattern compiler in Gleam can lower melodic and chordal cycles directly into `n>d` strings.
+
+2. 🧮 **The `k-synth` Vector Array Language Engine**:
+   - Skred embeds an entire vector/array language subsystem (**k-synth**), capable of evaluating expressive array expressions (`[ ... ] ks` and `k!`).
+   - Results can be transferred directly into the audio pipeline:
+     - `k>d`: Copies k-synth evaluation vectors into Skred's data array buffer.
+     - `k>w <slot>`: Synthesizes array evaluation vectors directly into playable wavetable slots (e.g. `[ sin 2*pi*!4096%4096 ] ks 50 k>w`).
+     - `d>k` and `w>k`: Bi-directional bridge feeding Skred data buffers or wavetables back into k-synth for algorithmic manipulation.
+   - This gives live coders native APL/k-style vector math directly in the C engine for sculpting wavetables, dynamic waveshapers, and generative harmonic spectra on the fly.
 
 #### Architectural Building Blocks to Explore
 
 - 🧩 **Pattern Mini-Notation Lowering**:
   - Designing a concise, rhythmic mini-notation in Gleam (e.g., `"[bd*4, ~ cp] [hh*8]"`, Euclidean patterns `(3, 8)`, polyrhythms, and polymeters).
-  - Compiling pattern cycles directly into Skred beat deferrals (`~ticks`), time deferrals (`+seconds`), and numeric data arrays `(60 64 67 . -)`.
+  - Compiling pattern cycles directly into Skred beat deferrals (`~ticks`), time deferrals (`+seconds`), embedded `n>d` note strings, and `ks` array expressions.
 
 - ⚡ **Hot Macro Re-Evaluation**:
   - Leveraging Skred's in-engine named macro system (`[macro_name] : body ;`) and dynamic numeric macro loop buffers (`eR`, `e!`, `e>`) to re-bind patterns and phrases on the fly.

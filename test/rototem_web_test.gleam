@@ -348,6 +348,28 @@ pub fn skode_variables_and_streams_test() {
   |> should.equal("&7")
 }
 
+pub fn skode_music_notation_and_ksynth_test() {
+  // 1. Note-to-data conversion
+  skode.command_to_string(skode.note_to_data("C3 - D3 - E3"))
+  |> should.equal("[ C3 - D3 - E3 ] n>d")
+
+  // 2. Note stream assignment
+  skode.command_to_string(skode.note_stream("Bb1 Bb1 Bb2 Bb1 - Ab1", 1))
+  |> should.equal("[ Bb1 Bb1 Bb2 Bb1 - Ab1 ] n>d /SS 1")
+
+  // 3. K-synth evaluation
+  skode.command_to_string(skode.ksynth_eval("1 2 3"))
+  |> should.equal("[ 1 2 3 ] ks")
+
+  // 4. K-synth to data array
+  skode.command_to_string(skode.ksynth_to_data("!16"))
+  |> should.equal("[ !16 ] ks k>d")
+
+  // 5. K-synth to wavetable slot
+  skode.command_to_string(skode.ksynth_to_wavetable("sin 2*pi*!4096%4096", 50))
+  |> should.equal("[ sin 2*pi*!4096%4096 ] ks 50 k>w")
+}
+
 pub fn control_plane_events_test() {
   // 1. Voice Trigger (Type 1)
   skred.to_skred_event(
