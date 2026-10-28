@@ -8,7 +8,7 @@
   "scripts": {
     "build:gleam": "gleam build --target javascript",
     "build": "gleam build --target javascript && vite build && gleam docs build && mkdir -p dist/docs && cp -r build/dev/docs/rototem_web/* dist/docs/",
-    "dev": "gleam build --target javascript && vite",
+    "dev": "gleam build --target javascript && gleam docs build && vite",
     "preview": "vite preview",
     "test": "gleam test --target javascript",
     "docs": "gleam docs build && mkdir -p dist/docs && cp -r build/dev/docs/rototem_web/* dist/docs/"

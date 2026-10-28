@@ -48,8 +48,9 @@ build: node_modules
 bundle: build
 
 dev: node_modules
-	@echo "==> Compiling Gleam and launching browser..."
+	@echo "==> Compiling Gleam, building docs, and launching browser..."
 	$(GLEAM) build --target javascript
+	$(GLEAM) docs build
 	npx vite --host $(HOST) --open --port $(PORT)
 
 run: dev
