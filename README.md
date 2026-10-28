@@ -21,16 +21,18 @@
 - **Idiomatic Gleam & Lustre Architecture**:
   - **Decomposed TEA Update Cycle**: Clean domain sub-handlers (`update_track_msg`, `update_master_msg`, `update_console_msg`, `update_ffi_msg`) eliminating monolithic boilerplate.
   - **Componentized Views**: Monolithic UI decomposed into modular subviews under `src/rototem/views/` (`master_bar`, `track_card`, `console`, `library_modal`, `common`).
-  - **Type-Safe Skode / ANDS AST**: Full AST compiler (`src/rototem/skode.gleam`) replacing ad-hoc string concatenation with typed protocol constructors.
+  - **Bi-Directional Skode & ANDS AST & Parser**: Complete AST compiler and tokenizer/parser (`src/rototem/skode.gleam`) supporting parsing (`parse`, `parse_command`), AST validation, and serialization.
 - **High-Performance Frontend & Lustre Best Practices**:
   - **GPU-Composited Transforms**: Floating cards and console windows use CSS custom properties (`--card-x`, `--card-y`, `--track-color`) and `translate3d` transforms with `will-change: transform`, bypassing browser layout reflows during dragging.
   - **Native Pointer Capture**: Touch, pen, and mouse gestures use unified Pointer Events (`pointerdown`, `pointermove`, `pointerup`) with `setPointerCapture(event.pointerId)` decoded in Lustre, eliminating lost events when dragging past viewport boundaries.
   - **Audio Slider Throttling via `requestAnimationFrame`**: High-frequency slider dragging coalesces continuous parameter updates (volume, pitch) to at most one WASM dispatch per display frame while preserving instant execution for discrete transport commands.
-- **Sound Management & Persistence**:
+- **Sound Management, VFS & Persistence**:
+  - **Generic Emscripten VFS File Mounting**: Mount `.zip`, `.sk` (Skode), `.ks` (k-synth), `.wav`, `.mp3`, and `.flac` files directly into VFS with console management chips (`[file.zip] %z`, `[file.sk] /ls`, `[file.ks] /ks`, `[file.wav] /w`).
   - Bulk directory picker supporting `.wav`, `.mp3`, and `.flac`.
   - Individual track sound pickers + quick `🎲 Random` sample assignment.
   - Master `🎲 Random All` button to randomize sounds across all 8 tracks simultaneously.
   - Project ZIP export and import packaging `settings.json` and mounted audio files via `fflate`.
+  - **Integrated Interactive API Documentation**: Built-in Gleam HTML docs served directly in development, preview, and GitHub Pages.
 
 ---
 
@@ -101,6 +103,12 @@ let melody = skode.note_stream("Bb1 Bb1 Bb2 Bb1  Ab1 - Ab1 -", 1)
 // 5. K-synth vector array language:
 let wavetable = skode.ksynth_to_wavetable("P: ~4096; W: s P", 50)
 // Compiles to: "[ P: ~4096; W: s P ] ks 50 k>w"
+
+// 6. Parsing Skode text back into typed AST:
+let assert Ok(script) = skode.parse("v0 a-3.5 f440 T; [beat.wav] /w; +0.25 v0l0")
+
+// 7. Lowering text directly into high-level domain commands:
+let assert Ok(commands) = skode.parse_command("v0 a-6.0; [snare.wav] /w")
 ```
 
 ---
