@@ -80,15 +80,16 @@ pub fn view_console_drawer(model: Model) -> Element(Msg) {
 
       // Quick diagnostic button toolbar
       div([class("console-quick-bar")], [
-        span([class("console-hint")], [text("Quick Diagnostics:")]),
-        quick_cmd_btn("?a (Audio Status)", "?a"),
-        quick_cmd_btn("?v (Voices)", "?v"),
-        quick_cmd_btn("v0? (Voice 0)", "v0?"),
-        quick_cmd_btn("/ws (Wavetables)", "/ws"),
+        span([class("console-hint")], [text("Quick Commands:")]),
+        quick_cmd_btn("? (Voice 0)", "v0 ?"),
+        quick_cmd_btn("?? (All Voices)", "??"),
+        quick_cmd_btn("?ws (Wavetables)", "?ws"),
+        quick_cmd_btn("?m (Macros)", "?m"),
         quick_cmd_btn("?q (Queue)", "?q"),
-        quick_cmd_btn("?? (Full Status)", "??"),
+        quick_cmd_btn("?ce (Events)", "?ce"),
         quick_cmd_btn("v0l1; v1l1 (V0-1 Run)", "v0l1; v1l1"),
         quick_cmd_btn("v0l0; v1l0 (V0-1 Stop)", "v0l0; v1l0"),
+        quick_cmd_btn("*l0 (Stop All)", "*l0"),
       ]),
 
       // Console Log Output

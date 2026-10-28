@@ -543,14 +543,14 @@ pub fn console_controls_and_execution_test() {
 
   // 1. ExecuteConsoleCommand should add to history and update console_input
   let #(model_after_quick, _) =
-    rototem_web.update(initial_model, types.ExecuteConsoleCommand("?a"))
-  model_after_quick.console_input |> should.equal("?a")
-  model_after_quick.command_history |> should.equal(["?a"])
+    rototem_web.update(initial_model, types.ExecuteConsoleCommand("??"))
+  model_after_quick.console_input |> should.equal("??")
+  model_after_quick.command_history |> should.equal(["??"])
 
   // 2. ClearConsole should empty console_logs
   let model_with_logs =
     types.Model(..initial_model, console_logs: [
-      types.ConsoleLog("?a", 0, "audio running"),
+      types.ConsoleLog("??", 0, "voice 0: running"),
     ])
   let #(model_cleared, _) =
     rototem_web.update(model_with_logs, types.ClearConsole)
