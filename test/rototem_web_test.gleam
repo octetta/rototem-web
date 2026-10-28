@@ -828,3 +828,48 @@ pub fn skode_parser_commands_test() {
     skode.Raw("[ C4 E4 G4 B4 ] n>d"),
   ])
 }
+
+pub fn skode_parser_roundtrip_test() {
+  // Test serializing AST -> text -> AST produces equivalent structures
+  let original_script =
+    skode.Script([
+      skode.Chunk([
+        skode.Atom("v", [skode.Num(0.0)]),
+        skode.Atom("f", [skode.Num(440.0)]),
+        skode.Atom("a", [skode.Num(-6.0)]),
+      ]),
+      skode.Chunk([
+        skode.Str("waves/snare.wav"),
+        skode.Atom("/w", []),
+      ]),
+      skode.Chunk([
+        skode.Arr([skode.Num(60.0), skode.Rest, skode.Tie, skode.Num(72.0)]),
+      ]),
+    ])
+
+  let serialized = skode.script_to_string(original_script)
+  let assert Ok(parsed_script) = skode.parse(serialized)
+
+  parsed_script |> should.equal(original_script)
+}
+
+pub fn skode_parser_error_handling_test() {
+  // 1. Unterminated string literal
+  let err_str = skode.parse("[unclosed_string")
+  err_str
+  |> should.equal(
+    Error(skode.ParseError("Unterminated string literal: missing ']'", 16)),
+  )
+
+  // 2. Unterminated data array
+  let err_arr = skode.parse("( 60 64 67")
+  err_arr
+  |> should.equal(
+    Error(skode.ParseError("Unterminated data array: missing ')'", 10)),
+  )
+
+  // 3. parse_element on empty input
+  let err_empty = skode.parse_element("")
+  err_empty
+  |> should.equal(Error(skode.ParseError("No syntactic elements found", 0)))
+}

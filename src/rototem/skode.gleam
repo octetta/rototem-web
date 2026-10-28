@@ -1,27 +1,33 @@
-//// # Skode & ANDS Audio Command Language AST
+//// # Skode & ANDS Audio Command Language AST & Parser
 ////
-//// This module provides an Abstract Syntax Tree (AST) and lowering compiler for
+//// This module provides an Abstract Syntax Tree (AST), tokenizer, parser, and lowering compiler for
 //// **Skode**, the live musical and DSP command language driving the **Skred** audio engine.
 ////
 //// The implementation is modeled directly after Skred's C source (`ands.c` and `skode.c`).
 ////
-//// ## Two-Layer Architecture
+//// ## Bi-Directional Architecture
 ////
-//// 1. **Low-Level ANDS Grammar Layer (`Element`, `Value`, `Chunk`, `Script`)**:
-////    Faithfully models the concrete syntactic tokens of the ANDS tokenizer:
-////    - Atoms (`v0`, `a-6.0`, `f440`, `DL`, `*R`)
-////    - Bracketed string literals (`[path/to/wave.wav]`)
-////    - Parenthesized numeric data arrays (`( 60 64 67 )`)
-////    - In-band line comments (`# comment`)
-////    - Named text macro definitions (`[name] : body ;`)
-////    - Variables (`$0` to `$127`) and live audio streams (`&0` to `&127`)
-////    - Return registers (`@0` to `@9`) and macro argument placeholders (`$$0` to `$$7`)
-////    - Schedulable deferred execution chunks (`+0.25 ...;` or `~4 ...;`)
+//// 1. **Parser (Text -> AST)**:
+////    - `parse(String) -> Result(Script, ParseError)`: Tokenizes and parses multi-chunk scripts.
+////    - `parse_chunk(String) -> Result(Chunk, ParseError)`: Parses a single execution chunk.
+////    - `parse_element(String) -> Result(Element, ParseError)`: Parses an individual syntactic element.
+////    - `parse_command(String) -> Result(List(SkodeCommand), ParseError)`: Lowers ASCII text directly into high-level domain commands.
 ////
-//// 2. **High-Level Domain Layer (`SkodeCommand`)**:
-////    Provides type-safe musical constructors (`stereo_volume`, `stereo_speed`, `track_control`,
-////    `define_macro`, `call_macro`) so the frontend and audio controllers never deal with
-////    error-prone string concatenation.
+//// 2. **Serializer (AST -> Text)**:
+////    - `script_to_string(Script) -> String`: Serializes a script into semicolon-delimited chunks.
+////    - `chunk_to_string(Chunk) -> String`: Formats an execution chunk.
+////    - `element_to_string(Element) -> String`: Formats a single syntactic element.
+////    - `command_to_string(SkodeCommand) -> String`: Serializes a domain command to executable ASCII text.
+////
+//// 3. **Syntax Elements Modeled**:
+////    - Atoms (`v0`, `a-6.0`, `f440`, `DL`, `*R`) with optional whitespace or prefix arguments.
+////    - Bracketed string literals (`[path/to/wave.wav]`, `[tune.sk] /ls`, `[algo.ks] /ks`).
+////    - Parenthesized numeric data arrays (`( 60 64 67 - . 72 )`) with ties (`.`, `_`) and rests (`-`, `e`).
+////    - In-band line comments (`# comment`).
+////    - Named text macro definitions (`[name] : body ;`).
+////    - Variable registers (`$0` to `$127`) and live audio streams (`&0` to `&127`).
+////    - Return registers (`@0` to `@9`) and macro argument placeholders (`$$0` to `$$7`).
+////    - Schedulable deferred execution chunks (`+0.25 ...;` in seconds or `~4 ...;` in tempo ticks).
 ////
 
 import gleam/float
@@ -1269,12 +1275,27 @@ fn parse_script_loop(
 }
 
 /// Parses a full Skode / ANDS script (composed of semicolon- or newline-delimited chunks) into an AST `Script`.
+///
+/// Handles atoms, bracketed strings, data arrays, comments, timing deferrals, named macros,
+/// variables, streams, and return registers.
+///
+/// ### Examples
+///
+/// ```gleam
+/// let assert Ok(script) = skode.parse("v0 w1 f440; [kick.wav] /w")
+/// ```
 pub fn parse(input: String) -> Result(Script, ParseError) {
   let chars = string.to_graphemes(input)
   parse_script_loop(chars, 0, [])
 }
 
 /// Parses a single execution chunk into an AST `Chunk`.
+///
+/// ### Examples
+///
+/// ```gleam
+/// let assert Ok(chunk) = skode.parse_chunk("v0 f440 a-6.0")
+/// ```
 pub fn parse_chunk(input: String) -> Result(Chunk, ParseError) {
   use script <- result.try(parse(input))
   case script {
@@ -1284,6 +1305,12 @@ pub fn parse_chunk(input: String) -> Result(Chunk, ParseError) {
 }
 
 /// Parses a single syntactic element into an AST `Element`.
+///
+/// ### Examples
+///
+/// ```gleam
+/// let assert Ok(element) = skode.parse_element("[sample.wav]")
+/// ```
 pub fn parse_element(input: String) -> Result(Element, ParseError) {
   use chunk <- result.try(parse_chunk(input))
   case chunk {
@@ -1375,6 +1402,20 @@ fn elements_to_commands(elements: List(Element)) -> List(SkodeCommand) {
 }
 
 /// Parses Skode ASCII command text into a list of high-level semantic `SkodeCommand` nodes.
+///
+/// Converts common atoms and string-opcode idioms into typed AST variants:
+/// - `v0` -> `SetVoice(0)`
+/// - `a-6.0` -> `SetAmp(-6.0)`
+/// - `f440` -> `SetFrequency(440.0)`
+/// - `[sample.wav] /w` -> `LoadWaveFile("sample.wav")`
+/// - `[intro] : v0 l1 ;` -> `DefineMacro("intro", Bundle([SetVoice(0), SetGate(1.0)]))`
+/// - `+0.25 v0 l0` -> `DelayRelative(0.25, Bundle([SetVoice(0), SetGate(0.0)]))`
+///
+/// ### Examples
+///
+/// ```gleam
+/// let assert Ok(commands) = skode.parse_command("v0 a0.8 f440 T; [beat.wav] /w")
+/// ```
 pub fn parse_command(input: String) -> Result(List(SkodeCommand), ParseError) {
   use script <- result.try(parse(input))
   let Script(chunks) = script
