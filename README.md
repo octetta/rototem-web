@@ -125,7 +125,7 @@ Automatically installs dependencies (if needed), compiles Gleam to JavaScript, a
 
 ### 2. Run Tests & Quality Checks
 ```bash
-make test    # Run full unit test suite (13 tests)
+make test    # Run full unit test suite (16 tests)
 make check   # Verify Gleam compilation and formatting
 make format  # Auto-format all Gleam files
 ```
@@ -179,3 +179,83 @@ rototem-web/
 ├── package.json           # Node scripts and subpath import mappings
 └── vite.config.js         # Vite server configuration with COOP/COEP headers
 ```
+
+---
+
+## 🔮 Future Vision & Aspirational Roadmap: From Playground to Ecosystem
+
+While `rototem-web` currently serves as the **R&D proving ground and integration playground** for Skred, Gleam, and Lustre, the long-term architectural goal is to decouple the foundational pieces into clean, reusable packages and explore live-coding workflows inspired by environments like **Strudel**.
+
+```text
+                ┌────────────────────────────────────────┐
+                │          Live Coding / Strudel         │
+                │        Interactive Canvas & UI         │
+                └───────────────────┬────────────────────┘
+                                    │
+                                    ▼
+       ┌────────────────────────────────────────────────────────┐
+       │                      skred_lustre                      │
+       │    Reusable Lustre TEA Audio Components & Widgets       │
+       │  (Faders, Knobs, Visualizers, Sequencers, Event Bus)   │
+       └────────────────────────────┬───────────────────────────┘
+                                    │
+                                    ▼
+       ┌────────────────────────────────────────────────────────┐
+       │                      skred_gleam                       │
+       │      Headless Core SDK: Skode AST & ANDS Compiler,     │
+       │     Typed Event Decoders, Native/WASM FFI Engine       │
+       └────────────────────────────┬───────────────────────────┘
+                                    │
+                                    ▼
+       ┌────────────────────────────────────────────────────────┐
+       │                   Skred Audio Engine                   │
+       │              (C DSP / WebAssembly / VFS)               │
+       └────────────────────────────────────────────────────────┘
+```
+
+### 1. Ecosystem Decoupling & Clean Packaging
+
+1. **`skred_gleam` (Headless Core Engine SDK)**:
+   - Completely decoupled from DOM, Lustre, and browser specifics.
+   - Houses the type-safe **Skode AST & ANDS Lowering Compiler** (`src/rototem/skode.gleam`).
+   - Pure Gleam data models for voice allocation, wavetable slots, and sequencer opcodes.
+   - Typed binary decoders for the 60 FPS lock-free **Control Plane Event Ring Buffer** (`skred_control_event_t`).
+   - Cross-platform bindings: WASM in the browser, C-ABI dynamic library (`libapi.so` / `libapi.dylib`) on native BEAM or native binaries via Gleam Erlang/JavaScript.
+
+2. **`skred_lustre` (Reactive Audio Component Library)**:
+   - A dedicated component and subscription toolkit for building reactive sound applications with The Elm Architecture.
+   - Built-in Lustre subscriptions:
+     - `subscribe_control_plane`: continuous telemetry streaming with zero audio thread blocking.
+     - `subscribe_animation_frame`: throttled slider and modulation dispatching.
+   - High-performance UI primitives:
+     - GPU-composited floating canvas layers with native Pointer Capture.
+     - Virtualized multi-channel fader banks, logarithmic volume/pan sliders, and detented pitch pickers.
+     - Real-time oscilloscope, spectrogram (`?ws`), and voice graph (`_skred_voice_graph`) canvas/WebGL renderers.
+
+---
+
+### 2. Live Coding UI: A Strudel-Inspired Future for Skred
+
+**The Ambition**: Give Skred an expressive, browser-first live coding environment where sound sculptors and live performers can compose rhythms, sculpt wavetables, and modulate parameters in real time through concise, rhythmic code that updates seamlessly without breaking musical flow.
+
+Inspired by **Strudel** (the browser-based TidalCycles live coding environment), we envision bringing live coding to Skred by combining the mathematical elegance of pattern mini-notations with Skred's low-latency DSP engine:
+
+#### Architectural Building Blocks to Explore
+
+- 🧩 **Pattern Mini-Notation Lowering**:
+  - Designing a concise, rhythmic mini-notation in Gleam (e.g., `"[bd*4, ~ cp] [hh*8]"`, Euclidean patterns `(3, 8)`, polyrhythms, and polymeters).
+  - Compiling pattern cycles directly into Skred beat deferrals (`~ticks`), time deferrals (`+seconds`), and numeric data arrays `(60 64 67 . -)`.
+
+- ⚡ **Hot Macro Re-Evaluation**:
+  - Leveraging Skred's in-engine named macro system (`[macro_name] : body ;`) and dynamic numeric macro loop buffers (`eR`, `e!`, `e>`) to re-bind patterns and phrases on the fly.
+  - Hot-swapping macro bodies in real time without restarting voices, dropping frames, or losing global transport phase.
+
+- 🎛️ **Reactive In-Editor UI & Step Flashing**:
+  - Embedding a modern web code editor (such as CodeMirror 6 or a custom Lustre editor) with real-time Skode syntax highlighting and diagnostics.
+  - Using the **Real-Time Control Plane Event Bus** (`PatternStep`, `VoiceTrigger`, `VoiceFinished`) to illuminate running code inline—flashing pattern elements, highlighting active notes, and scrubbing visual playheads directly over the code as it sounds.
+
+- 🌊 **Live Continuous Modulation Streams (`&0`..`&127`)**:
+  - Exposing Skred's stream registers to interactive UI widgets (XY pads, mouse trajectories, MIDI controllers, Web MIDI) for live continuous modulation over discrete rhythmic patterns.
+
+> [!NOTE]
+> This roadmap represents aspirational exploration. `rototem-web` remains our primary laboratory to prove and battle-test these abstractions before extracting them into independent, production-grade packages.
