@@ -28,6 +28,7 @@ import gleam/float
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/result
 import gleam/string
 
 // ---------------------------------------------------------------------------
@@ -519,4 +520,868 @@ pub fn ksynth_to_wavetable(code: String, wave_slot: Int) -> SkodeCommand {
   Raw(
     "[ " <> string.trim(code) <> " ] ks " <> int.to_string(wave_slot) <> " k>w",
   )
+}
+
+// ---------------------------------------------------------------------------
+// Parser: Skode & ANDS Text -> AST
+// ---------------------------------------------------------------------------
+
+/// Error encountered during Skode / ANDS tokenization and parsing.
+pub type ParseError {
+  ParseError(message: String, position: Int)
+}
+
+fn is_digit(c: String) -> Bool {
+  case c {
+    "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" -> True
+    _ -> False
+  }
+}
+
+fn is_atom_char(c: String) -> Bool {
+  case c {
+    "a"
+    | "b"
+    | "c"
+    | "d"
+    | "e"
+    | "f"
+    | "g"
+    | "h"
+    | "i"
+    | "j"
+    | "k"
+    | "l"
+    | "m"
+    | "n"
+    | "o"
+    | "p"
+    | "q"
+    | "r"
+    | "s"
+    | "t"
+    | "u"
+    | "v"
+    | "w"
+    | "x"
+    | "y"
+    | "z"
+    | "A"
+    | "B"
+    | "C"
+    | "D"
+    | "E"
+    | "F"
+    | "G"
+    | "H"
+    | "I"
+    | "J"
+    | "K"
+    | "L"
+    | "M"
+    | "N"
+    | "O"
+    | "P"
+    | "Q"
+    | "R"
+    | "S"
+    | "T"
+    | "U"
+    | "V"
+    | "W"
+    | "X"
+    | "Y"
+    | "Z" -> True
+    "!"
+    | "%"
+    | "^"
+    | "*"
+    | "="
+    | ":"
+    | "\""
+    | "'"
+    | "<"
+    | ">"
+    | "?"
+    | "/"
+    | "\\"
+    | "|"
+    | "`" -> True
+    _ -> False
+  }
+}
+
+fn is_number_char(c: String) -> Bool {
+  is_digit(c) || c == "." || c == "e" || c == "E"
+}
+
+fn skip_separators(chars: List(String), pos: Int) -> #(List(String), Int) {
+  case chars {
+    [" ", ..rest] | ["\t", ..rest] | [",", ..rest] ->
+      skip_separators(rest, pos + 1)
+    _ -> #(chars, pos)
+  }
+}
+
+fn skip_tie_chars(chars: List(String), pos: Int) -> #(List(String), Int) {
+  case chars {
+    [".", ..rest] | ["_", ..rest] -> skip_tie_chars(rest, pos + 1)
+    _ -> #(chars, pos)
+  }
+}
+
+fn skip_rest_chars(chars: List(String), pos: Int) -> #(List(String), Int) {
+  case chars {
+    ["-", ..rest] -> skip_rest_chars(rest, pos + 1)
+    _ -> #(chars, pos)
+  }
+}
+
+fn parse_number_literal(s: String) -> Result(Float, Nil) {
+  let normalized = case s {
+    "." | "-." -> ""
+    "-." <> rest -> "-0." <> rest
+    "." <> rest -> "0." <> rest
+    _ -> s
+  }
+  case float.parse(normalized) {
+    Ok(f) -> Ok(f)
+    Error(_) -> {
+      case int.parse(normalized) {
+        Ok(i) -> Ok(int.to_float(i))
+        Error(_) -> Error(Nil)
+      }
+    }
+  }
+}
+
+fn read_digits_int(
+  chars: List(String),
+  pos: Int,
+  acc: List(String),
+) -> #(List(String), Int, Int) {
+  case chars {
+    [c, ..rest] -> {
+      case is_digit(c) {
+        True -> read_digits_int(rest, pos + 1, [c, ..acc])
+        False -> {
+          let s = string.join(list.reverse(acc), "")
+          let n = result.unwrap(int.parse(s), 0)
+          #(chars, pos, n)
+        }
+      }
+    }
+    [] -> {
+      let s = string.join(list.reverse(acc), "")
+      let n = result.unwrap(int.parse(s), 0)
+      #(chars, pos, n)
+    }
+  }
+}
+
+fn read_number(
+  chars: List(String),
+  pos: Int,
+  acc: List(String),
+) -> Result(#(List(String), Int, Float), ParseError) {
+  case chars {
+    [c, ..rest] -> {
+      case is_number_char(c) {
+        True -> read_number(rest, pos + 1, [c, ..acc])
+        False -> {
+          let s = string.join(list.reverse(acc), "")
+          case parse_number_literal(s) {
+            Ok(f) -> Ok(#(chars, pos, f))
+            Error(_) -> Error(ParseError("Invalid number format: " <> s, pos))
+          }
+        }
+      }
+    }
+    [] -> {
+      let s = string.join(list.reverse(acc), "")
+      case parse_number_literal(s) {
+        Ok(f) -> Ok(#(chars, pos, f))
+        Error(_) -> Error(ParseError("Invalid number format: " <> s, pos))
+      }
+    }
+  }
+}
+
+fn read_bracketed(
+  chars: List(String),
+  pos: Int,
+  acc: List(String),
+) -> Result(#(List(String), Int, String), ParseError) {
+  case chars {
+    ["]", ..rest] -> Ok(#(rest, pos + 1, string.join(list.reverse(acc), "")))
+    [c, ..rest] -> read_bracketed(rest, pos + 1, [c, ..acc])
+    [] -> Error(ParseError("Unterminated string literal: missing ']'", pos))
+  }
+}
+
+fn read_comment(
+  chars: List(String),
+  pos: Int,
+  acc: List(String),
+) -> #(List(String), Int, String) {
+  case chars {
+    ["\n", ..] | ["\r", ..] | [";", ..] -> #(
+      chars,
+      pos,
+      string.trim(string.join(list.reverse(acc), "")),
+    )
+    [c, ..rest] -> read_comment(rest, pos + 1, [c, ..acc])
+    [] -> #(chars, pos, string.trim(string.join(list.reverse(acc), "")))
+  }
+}
+
+fn read_array_values(
+  chars: List(String),
+  pos: Int,
+  acc: List(Value),
+) -> Result(#(List(String), Int, List(Value)), ParseError) {
+  let #(clean_chars, next_pos) = skip_separators(chars, pos)
+  case clean_chars {
+    [")", ..rest] -> Ok(#(rest, next_pos + 1, list.reverse(acc)))
+    [] -> Error(ParseError("Unterminated data array: missing ')'", next_pos))
+    ["$", "$", c, ..rest]
+      if c == "0"
+      || c == "1"
+      || c == "2"
+      || c == "3"
+      || c == "4"
+      || c == "5"
+      || c == "6"
+      || c == "7"
+      || c == "8"
+      || c == "9"
+    -> {
+      let #(r2, p2, idx) = read_digits_int([c, ..rest], next_pos + 2, [])
+      read_array_values(r2, p2, [MacroArg(idx), ..acc])
+    }
+    ["$", c, ..rest]
+      if c == "0"
+      || c == "1"
+      || c == "2"
+      || c == "3"
+      || c == "4"
+      || c == "5"
+      || c == "6"
+      || c == "7"
+      || c == "8"
+      || c == "9"
+    -> {
+      let #(r2, p2, idx) = read_digits_int([c, ..rest], next_pos + 1, [])
+      read_array_values(r2, p2, [Variable(idx), ..acc])
+    }
+    ["&", c, ..rest]
+      if c == "0"
+      || c == "1"
+      || c == "2"
+      || c == "3"
+      || c == "4"
+      || c == "5"
+      || c == "6"
+      || c == "7"
+      || c == "8"
+      || c == "9"
+    -> {
+      let #(r2, p2, idx) = read_digits_int([c, ..rest], next_pos + 1, [])
+      read_array_values(r2, p2, [Stream(idx), ..acc])
+    }
+    ["@", c, ..rest]
+      if c == "0"
+      || c == "1"
+      || c == "2"
+      || c == "3"
+      || c == "4"
+      || c == "5"
+      || c == "6"
+      || c == "7"
+      || c == "8"
+      || c == "9"
+    -> {
+      let #(r2, p2, idx) = read_digits_int([c, ..rest], next_pos + 1, [])
+      read_array_values(r2, p2, [ReturnRef(idx), ..acc])
+    }
+    [".", c, ..rest]
+      if c == "0"
+      || c == "1"
+      || c == "2"
+      || c == "3"
+      || c == "4"
+      || c == "5"
+      || c == "6"
+      || c == "7"
+      || c == "8"
+      || c == "9"
+    -> {
+      use #(r2, p2, f) <- result.try(
+        read_number([c, ..rest], next_pos + 1, ["."]),
+      )
+      read_array_values(r2, p2, [Num(f), ..acc])
+    }
+    [".", ..rest] | ["_", ..rest] -> {
+      let #(r2, p2) = skip_tie_chars(rest, next_pos + 1)
+      read_array_values(r2, p2, [Tie, ..acc])
+    }
+    ["-", c, ..rest]
+      if c == "0"
+      || c == "1"
+      || c == "2"
+      || c == "3"
+      || c == "4"
+      || c == "5"
+      || c == "6"
+      || c == "7"
+      || c == "8"
+      || c == "9"
+      || c == "."
+    -> {
+      use #(r2, p2, f) <- result.try(
+        read_number([c, ..rest], next_pos + 1, ["-"]),
+      )
+      read_array_values(r2, p2, [Num(f), ..acc])
+    }
+    ["-", ..rest] -> {
+      let #(r2, p2) = skip_rest_chars(rest, next_pos + 1)
+      read_array_values(r2, p2, [Rest, ..acc])
+    }
+    ["e", ..rest] -> {
+      read_array_values(rest, next_pos + 1, [Rest, ..acc])
+    }
+    [c, ..rest] -> {
+      case is_digit(c) {
+        True -> {
+          use #(r2, p2, f) <- result.try(read_number(rest, next_pos + 1, [c]))
+          read_array_values(r2, p2, [Num(f), ..acc])
+        }
+        False ->
+          Error(ParseError(
+            "Unexpected character in data array: " <> c,
+            next_pos,
+          ))
+      }
+    }
+  }
+}
+
+fn read_atom_name(
+  chars: List(String),
+  pos: Int,
+  acc: List(String),
+) -> #(List(String), Int, String) {
+  case chars {
+    [c, ..rest] -> {
+      case is_atom_char(c) {
+        True -> read_atom_name(rest, pos + 1, [c, ..acc])
+        False -> #(chars, pos, string.join(list.reverse(acc), ""))
+      }
+    }
+    [] -> #(chars, pos, string.join(list.reverse(acc), ""))
+  }
+}
+
+fn read_atom_args(
+  chars: List(String),
+  pos: Int,
+  acc: List(Value),
+) -> #(List(String), Int, List(Value)) {
+  case chars {
+    // Immediate number without separator
+    ["-", c, ..rest]
+      if c == "0"
+      || c == "1"
+      || c == "2"
+      || c == "3"
+      || c == "4"
+      || c == "5"
+      || c == "6"
+      || c == "7"
+      || c == "8"
+      || c == "9"
+      || c == "."
+    -> {
+      case read_number([c, ..rest], pos + 1, ["-"]) {
+        Ok(#(r2, p2, f)) -> read_atom_args_loop(r2, p2, [Num(f), ..acc])
+        Error(_) -> #(chars, pos, list.reverse(acc))
+      }
+    }
+    [".", c, ..rest]
+      if c == "0"
+      || c == "1"
+      || c == "2"
+      || c == "3"
+      || c == "4"
+      || c == "5"
+      || c == "6"
+      || c == "7"
+      || c == "8"
+      || c == "9"
+    -> {
+      case read_number([c, ..rest], pos + 1, ["."]) {
+        Ok(#(r2, p2, f)) -> read_atom_args_loop(r2, p2, [Num(f), ..acc])
+        Error(_) -> #(chars, pos, list.reverse(acc))
+      }
+    }
+    [c, ..rest]
+      if c == "0"
+      || c == "1"
+      || c == "2"
+      || c == "3"
+      || c == "4"
+      || c == "5"
+      || c == "6"
+      || c == "7"
+      || c == "8"
+      || c == "9"
+    -> {
+      case read_number(rest, pos + 1, [c]) {
+        Ok(#(r2, p2, f)) -> read_atom_args_loop(r2, p2, [Num(f), ..acc])
+        Error(_) -> #(chars, pos, list.reverse(acc))
+      }
+    }
+    _ -> read_atom_args_loop(chars, pos, acc)
+  }
+}
+
+fn read_atom_args_loop(
+  chars: List(String),
+  pos: Int,
+  acc: List(Value),
+) -> #(List(String), Int, List(Value)) {
+  let #(clean, next_pos) = skip_separators(chars, pos)
+  case clean {
+    ["-", c, ..rest]
+      if c == "0"
+      || c == "1"
+      || c == "2"
+      || c == "3"
+      || c == "4"
+      || c == "5"
+      || c == "6"
+      || c == "7"
+      || c == "8"
+      || c == "9"
+      || c == "."
+    -> {
+      case read_number([c, ..rest], next_pos + 1, ["-"]) {
+        Ok(#(r2, p2, f)) -> read_atom_args_loop(r2, p2, [Num(f), ..acc])
+        Error(_) -> #(clean, next_pos, list.reverse(acc))
+      }
+    }
+    [".", c, ..rest]
+      if c == "0"
+      || c == "1"
+      || c == "2"
+      || c == "3"
+      || c == "4"
+      || c == "5"
+      || c == "6"
+      || c == "7"
+      || c == "8"
+      || c == "9"
+    -> {
+      case read_number([c, ..rest], next_pos + 1, ["."]) {
+        Ok(#(r2, p2, f)) -> read_atom_args_loop(r2, p2, [Num(f), ..acc])
+        Error(_) -> #(clean, next_pos, list.reverse(acc))
+      }
+    }
+    [c, ..rest]
+      if c == "0"
+      || c == "1"
+      || c == "2"
+      || c == "3"
+      || c == "4"
+      || c == "5"
+      || c == "6"
+      || c == "7"
+      || c == "8"
+      || c == "9"
+    -> {
+      case read_number(rest, next_pos + 1, [c]) {
+        Ok(#(r2, p2, f)) -> read_atom_args_loop(r2, p2, [Num(f), ..acc])
+        Error(_) -> #(clean, next_pos, list.reverse(acc))
+      }
+    }
+    ["$", "$", c, ..rest]
+      if c == "0"
+      || c == "1"
+      || c == "2"
+      || c == "3"
+      || c == "4"
+      || c == "5"
+      || c == "6"
+      || c == "7"
+      || c == "8"
+      || c == "9"
+    -> {
+      let #(r2, p2, idx) = read_digits_int([c, ..rest], next_pos + 2, [])
+      read_atom_args_loop(r2, p2, [MacroArg(idx), ..acc])
+    }
+    ["$", c, ..rest]
+      if c == "0"
+      || c == "1"
+      || c == "2"
+      || c == "3"
+      || c == "4"
+      || c == "5"
+      || c == "6"
+      || c == "7"
+      || c == "8"
+      || c == "9"
+    -> {
+      let #(r2, p2, idx) = read_digits_int([c, ..rest], next_pos + 1, [])
+      read_atom_args_loop(r2, p2, [Variable(idx), ..acc])
+    }
+    ["&", c, ..rest]
+      if c == "0"
+      || c == "1"
+      || c == "2"
+      || c == "3"
+      || c == "4"
+      || c == "5"
+      || c == "6"
+      || c == "7"
+      || c == "8"
+      || c == "9"
+    -> {
+      let #(r2, p2, idx) = read_digits_int([c, ..rest], next_pos + 1, [])
+      read_atom_args_loop(r2, p2, [Stream(idx), ..acc])
+    }
+    _ -> #(clean, next_pos, list.reverse(acc))
+  }
+}
+
+fn parse_chunk_elements(
+  chars: List(String),
+  pos: Int,
+  pending_args: List(Value),
+  acc: List(Element),
+) -> Result(#(List(String), Int, List(Element)), ParseError) {
+  let #(clean, next_pos) = skip_separators(chars, pos)
+  case clean {
+    [] -> {
+      let final_acc = case pending_args {
+        [] -> acc
+        _ -> [Atom("", list.reverse(pending_args)), ..acc]
+      }
+      Ok(#([], next_pos, list.reverse(final_acc)))
+    }
+    [";", ..rest] -> {
+      let final_acc = case pending_args {
+        [] -> acc
+        _ -> [Atom("", list.reverse(pending_args)), ..acc]
+      }
+      Ok(#(rest, next_pos + 1, list.reverse(final_acc)))
+    }
+    ["\n", ..rest] | ["\r", ..rest] -> {
+      let final_acc = case pending_args {
+        [] -> acc
+        _ -> [Atom("", list.reverse(pending_args)), ..acc]
+      }
+      Ok(#(rest, next_pos + 1, list.reverse(final_acc)))
+    }
+    ["#", ..rest] -> {
+      let #(r2, p2, c) = read_comment(rest, next_pos + 1, [])
+      parse_chunk_elements(r2, p2, pending_args, [Comment(c), ..acc])
+    }
+    ["[", ..rest] -> {
+      use #(r2, p2, str_content) <- result.try(
+        read_bracketed(rest, next_pos + 1, []),
+      )
+      let #(r3, p3) = skip_separators(r2, p2)
+      case r3 {
+        [":", ..r4] -> {
+          // Macro definition: [name] : body ;
+          use #(r5, p5, body_elements) <- result.try(
+            parse_chunk_elements(r4, p3 + 1, [], []),
+          )
+          let macro_el = MacroDef(str_content, body_elements)
+          Ok(#(r5, p5, list.reverse([macro_el, ..acc])))
+        }
+        _ -> {
+          parse_chunk_elements(r2, p2, pending_args, [Str(str_content), ..acc])
+        }
+      }
+    }
+    ["(", ..rest] -> {
+      use #(r2, p2, vals) <- result.try(
+        read_array_values(rest, next_pos + 1, []),
+      )
+      parse_chunk_elements(r2, p2, pending_args, [Arr(vals), ..acc])
+    }
+    ["+", c, ..rest]
+      if c == "0"
+      || c == "1"
+      || c == "2"
+      || c == "3"
+      || c == "4"
+      || c == "5"
+      || c == "6"
+      || c == "7"
+      || c == "8"
+      || c == "9"
+      || c == "."
+    -> {
+      use #(r2, p2, amt) <- result.try(
+        read_number([c, ..rest], next_pos + 1, []),
+      )
+      use #(r3, p3, def_els) <- result.try(parse_chunk_elements(r2, p2, [], []))
+      let defer_el = Defer(RelativeSeconds, amt, def_els)
+      Ok(#(r3, p3, list.reverse([defer_el, ..acc])))
+    }
+    ["~", c, ..rest]
+      if c == "0"
+      || c == "1"
+      || c == "2"
+      || c == "3"
+      || c == "4"
+      || c == "5"
+      || c == "6"
+      || c == "7"
+      || c == "8"
+      || c == "9"
+      || c == "."
+    -> {
+      use #(r2, p2, amt) <- result.try(
+        read_number([c, ..rest], next_pos + 1, []),
+      )
+      use #(r3, p3, def_els) <- result.try(parse_chunk_elements(r2, p2, [], []))
+      let defer_el = Defer(TempoTicks, amt, def_els)
+      Ok(#(r3, p3, list.reverse([defer_el, ..acc])))
+    }
+    ["$", "$", c, ..rest]
+      if c == "0"
+      || c == "1"
+      || c == "2"
+      || c == "3"
+      || c == "4"
+      || c == "5"
+      || c == "6"
+      || c == "7"
+      || c == "8"
+      || c == "9"
+    -> {
+      let #(r2, p2, idx) = read_digits_int([c, ..rest], next_pos + 2, [])
+      parse_chunk_elements(r2, p2, pending_args, [MacroArgRef(idx), ..acc])
+    }
+    ["$", c, ..rest]
+      if c == "0"
+      || c == "1"
+      || c == "2"
+      || c == "3"
+      || c == "4"
+      || c == "5"
+      || c == "6"
+      || c == "7"
+      || c == "8"
+      || c == "9"
+    -> {
+      let #(r2, p2, idx) = read_digits_int([c, ..rest], next_pos + 1, [])
+      parse_chunk_elements(r2, p2, pending_args, [VarRefElement(idx), ..acc])
+    }
+    ["&", c, ..rest]
+      if c == "0"
+      || c == "1"
+      || c == "2"
+      || c == "3"
+      || c == "4"
+      || c == "5"
+      || c == "6"
+      || c == "7"
+      || c == "8"
+      || c == "9"
+    -> {
+      let #(r2, p2, idx) = read_digits_int([c, ..rest], next_pos + 1, [])
+      parse_chunk_elements(r2, p2, pending_args, [StreamRefElement(idx), ..acc])
+    }
+    ["-", c, ..rest]
+      if c == "0"
+      || c == "1"
+      || c == "2"
+      || c == "3"
+      || c == "4"
+      || c == "5"
+      || c == "6"
+      || c == "7"
+      || c == "8"
+      || c == "9"
+      || c == "."
+    -> {
+      use #(r2, p2, f) <- result.try(
+        read_number([c, ..rest], next_pos + 1, ["-"]),
+      )
+      parse_chunk_elements(r2, p2, [Num(f), ..pending_args], acc)
+    }
+    [c, ..rest]
+      if c == "0"
+      || c == "1"
+      || c == "2"
+      || c == "3"
+      || c == "4"
+      || c == "5"
+      || c == "6"
+      || c == "7"
+      || c == "8"
+      || c == "9"
+      || c == "."
+    -> {
+      use #(r2, p2, f) <- result.try(read_number(rest, next_pos + 1, [c]))
+      parse_chunk_elements(r2, p2, [Num(f), ..pending_args], acc)
+    }
+    [c, ..rest] -> {
+      case is_atom_char(c) {
+        True -> {
+          let #(r2, p2, atom_name) = read_atom_name(rest, next_pos + 1, [c])
+          let #(r3, p3, following_args) = read_atom_args(r2, p2, [])
+          let all_args = list.append(list.reverse(pending_args), following_args)
+          let element = Atom(atom_name, all_args)
+          parse_chunk_elements(r3, p3, [], [element, ..acc])
+        }
+        False -> Error(ParseError("Unexpected character: " <> c, next_pos))
+      }
+    }
+  }
+}
+
+fn parse_script_loop(
+  chars: List(String),
+  pos: Int,
+  acc: List(Chunk),
+) -> Result(Script, ParseError) {
+  let #(clean, next_pos) = skip_separators(chars, pos)
+  case clean {
+    [] -> Ok(Script(list.reverse(acc)))
+    [";", ..rest] | ["\n", ..rest] | ["\r", ..rest] ->
+      parse_script_loop(rest, next_pos + 1, acc)
+    _ -> {
+      use #(remaining, end_pos, elements) <- result.try(
+        parse_chunk_elements(clean, next_pos, [], []),
+      )
+      let new_acc = case elements {
+        [] -> acc
+        _ -> [Chunk(elements), ..acc]
+      }
+      parse_script_loop(remaining, end_pos, new_acc)
+    }
+  }
+}
+
+/// Parses a full Skode / ANDS script (composed of semicolon- or newline-delimited chunks) into an AST `Script`.
+pub fn parse(input: String) -> Result(Script, ParseError) {
+  let chars = string.to_graphemes(input)
+  parse_script_loop(chars, 0, [])
+}
+
+/// Parses a single execution chunk into an AST `Chunk`.
+pub fn parse_chunk(input: String) -> Result(Chunk, ParseError) {
+  use script <- result.try(parse(input))
+  case script {
+    Script([]) -> Ok(Chunk([]))
+    Script([first, ..]) -> Ok(first)
+  }
+}
+
+/// Parses a single syntactic element into an AST `Element`.
+pub fn parse_element(input: String) -> Result(Element, ParseError) {
+  use chunk <- result.try(parse_chunk(input))
+  case chunk {
+    Chunk([first, ..]) -> Ok(first)
+    Chunk([]) -> Error(ParseError("No syntactic elements found", 0))
+  }
+}
+
+fn single_element_to_command(el: Element) -> SkodeCommand {
+  case el {
+    Atom("v", [Num(v)]) -> SetVoice(float.round(v))
+    Atom("a", [Num(db)]) -> SetAmp(db)
+    Atom("f", [Num(hz)]) -> SetFrequency(hz)
+    Atom("n", [Num(note)]) -> SetMidiPitch(note, None)
+    Atom("n", [Num(note), Num(cents)]) -> SetMidiPitch(note, Some(cents))
+    Atom("p", [Num(pan)]) -> SetPan(pan)
+    Atom("m", [Num(m)]) -> SetMute(m != 0.0)
+    Atom("l", [Num(vel)]) -> SetGate(vel)
+    Atom("T", []) -> Trigger
+    Atom("w", [Num(w)]) -> SetWave(float.round(w))
+    Atom("b", [Num(0.0)]) -> SetWaveDirection(Forward)
+    Atom("b", [Num(1.0)]) -> SetWaveDirection(Reverse)
+    Atom("b", [Num(2.0)]) -> SetWaveDirection(PingPong)
+    Atom("b", []) -> FlipVoice(AllVoices)
+    Atom("B", [Num(0.0)]) -> SetWaveLoop(False)
+    Atom("B", [Num(1.0)]) -> SetWaveLoop(True)
+    Atom("BC", [Num(c)]) -> SetWaveLoopCount(float.round(c))
+    Atom("*l", [Num(0.0)]) -> StopAll
+    Atom("S", [Num(-1.0)]) -> ResetVoices(AllVoices)
+    Atom("V", [Num(db)]) -> SetMasterVolume(db)
+    MacroDef(name, body_elements) -> {
+      let cmds = elements_to_commands(body_elements)
+      let body = case cmds {
+        [single] -> single
+        _ -> Bundle(cmds)
+      }
+      DefineMacro(name, body)
+    }
+    Defer(RelativeSeconds, sec, deferred_elements) -> {
+      let cmds = elements_to_commands(deferred_elements)
+      let body = case cmds {
+        [single] -> single
+        _ -> Bundle(cmds)
+      }
+      DelayRelative(sec, body)
+    }
+    Defer(TempoTicks, ticks, deferred_elements) -> {
+      let cmds = elements_to_commands(deferred_elements)
+      let body = case cmds {
+        [single] -> single
+        _ -> Bundle(cmds)
+      }
+      DelayTicks(ticks, body)
+    }
+    Arr(vals) -> DataArray(vals)
+    Str(s) -> StringLiteral(s)
+    Comment(c) -> LineComment(c)
+    VarRefElement(idx) -> VariableRef(idx)
+    StreamRefElement(idx) -> StreamTarget(idx)
+    MacroArgRef(idx) -> MacroArgPlaceholder(idx)
+    _ -> Raw(element_to_string(el))
+  }
+}
+
+fn elements_to_commands(elements: List(Element)) -> List(SkodeCommand) {
+  case elements {
+    [] -> []
+    [Str(path), Atom("/w", _), ..rest] -> [
+      LoadWaveFile(path),
+      ..elements_to_commands(rest)
+    ]
+    [Str(path), Atom("/ls", _), ..rest] | [Str(path), Atom("/l", _), ..rest] -> [
+      Raw("[" <> path <> "] /ls"),
+      ..elements_to_commands(rest)
+    ]
+    [Str(code), Atom("/ks", _), ..rest] | [Str(code), Atom("ks", _), ..rest] -> [
+      ksynth_eval(code),
+      ..elements_to_commands(rest)
+    ]
+    [Str(notes), Atom("n>d", _), ..rest] -> [
+      note_to_data(notes),
+      ..elements_to_commands(rest)
+    ]
+    [first, ..rest] -> [
+      single_element_to_command(first),
+      ..elements_to_commands(rest)
+    ]
+  }
+}
+
+/// Parses Skode ASCII command text into a list of high-level semantic `SkodeCommand` nodes.
+pub fn parse_command(input: String) -> Result(List(SkodeCommand), ParseError) {
+  use script <- result.try(parse(input))
+  let Script(chunks) = script
+  let all_commands =
+    list.flat_map(chunks, fn(chunk) {
+      let Chunk(elements) = chunk
+      elements_to_commands(elements)
+    })
+  Ok(all_commands)
 }

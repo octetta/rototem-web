@@ -99,8 +99,8 @@ let melody = skode.note_stream("Bb1 Bb1 Bb2 Bb1  Ab1 - Ab1 -", 1)
 // Compiles to: "[ Bb1 Bb1 Bb2 Bb1  Ab1 - Ab1 - ] n>d /SS 1"
 
 // 5. K-synth vector array language:
-let wavetable = skode.ksynth_to_wavetable("sin 2*pi*!4096%4096", 50)
-// Compiles to: "[ sin 2*pi*!4096%4096 ] ks 50 k>w"
+let wavetable = skode.ksynth_to_wavetable("P: ~4096; W: s P", 50)
+// Compiles to: "[ P: ~4096; W: s P ] ks 50 k>w"
 ```
 
 ---
@@ -273,7 +273,7 @@ Crucially, **Skred already contains two powerful embedded domain-specific langua
    - Skred embeds an entire vector/array language subsystem (**k-synth**), capable of evaluating expressive array expressions (`[ ... ] ks` and `k!`).
    - Results can be transferred directly into the audio pipeline:
      - `k>d`: Copies k-synth evaluation vectors into Skred's data array buffer.
-     - `k>w <slot>`: Synthesizes array evaluation vectors directly into playable wavetable slots (e.g. `[ sin 2*pi*!4096%4096 ] ks 50 k>w`).
+     - `k>w <slot>`: Synthesizes array evaluation vectors directly into playable wavetable slots (e.g. `[ P: ~4096; W: s P ] ks 50 k>w` to synthesize a pure 4096-sample sine wave).
      - `d>k` and `w>k`: Bi-directional bridge feeding Skred data buffers or wavetables back into k-synth for algorithmic manipulation.
    - This gives live coders native APL/k-style vector math directly in the C engine for sculpting wavetables, dynamic waveshapers, and generative harmonic spectra on the fly.
 

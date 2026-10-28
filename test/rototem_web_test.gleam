@@ -691,3 +691,140 @@ pub fn vfs_files_test() {
     )
   model_ks.console_input |> should.equal("[filter.ks] /ks")
 }
+
+pub fn skode_parser_tokens_test() {
+  // 1. Basic atoms and numbers with whitespace
+  let assert Ok(script1) = skode.parse("v0 w1 f440 a-6.0")
+  let assert skode.Script([skode.Chunk(elements1)]) = script1
+  elements1
+  |> should.equal([
+    skode.Atom("v", [skode.Num(0.0)]),
+    skode.Atom("w", [skode.Num(1.0)]),
+    skode.Atom("f", [skode.Num(440.0)]),
+    skode.Atom("a", [skode.Num(-6.0)]),
+  ])
+
+  // 2. Concatenated atoms without spaces (v0w1f440a-6.0)
+  let assert Ok(script2) = skode.parse("v0w1f440a-6.0")
+  let assert skode.Script([skode.Chunk(elements2)]) = script2
+  elements2
+  |> should.equal([
+    skode.Atom("v", [skode.Num(0.0)]),
+    skode.Atom("w", [skode.Num(1.0)]),
+    skode.Atom("f", [skode.Num(440.0)]),
+    skode.Atom("a", [skode.Num(-6.0)]),
+  ])
+
+  // 3. Semicolon-delimited execution chunks
+  let assert Ok(script3) = skode.parse("v0 a0.9; v1 a0.9; v0 l1; v1 l1")
+  let skode.Script(chunks3) = script3
+  list.length(chunks3) |> should.equal(4)
+
+  // 4. Bracketed strings and atoms
+  let assert Ok(script4) =
+    skode.parse("[waves/kick.wav] /w; [tune.sk] /ls; [algo.ks] /ks")
+  let assert skode.Script([skode.Chunk(c1), skode.Chunk(c2), skode.Chunk(c3)]) =
+    script4
+  c1 |> should.equal([skode.Str("waves/kick.wav"), skode.Atom("/w", [])])
+  c2 |> should.equal([skode.Str("tune.sk"), skode.Atom("/ls", [])])
+  c3 |> should.equal([skode.Str("algo.ks"), skode.Atom("/ks", [])])
+
+  // 5. Parenthesized data arrays with ties and rests
+  let assert Ok(script5) = skode.parse("( 60 64 67 - . 72 )")
+  let assert skode.Script([skode.Chunk([skode.Arr(vals)])]) = script5
+  vals
+  |> should.equal([
+    skode.Num(60.0),
+    skode.Num(64.0),
+    skode.Num(67.0),
+    skode.Rest,
+    skode.Tie,
+    skode.Num(72.0),
+  ])
+}
+
+pub fn skode_parser_script_structures_test() {
+  // 1. Comments
+  let assert Ok(script_comment) = skode.parse("# lead synth voice\nv0 f440")
+  let assert skode.Script([skode.Chunk(c1), skode.Chunk(c2)]) = script_comment
+  c1 |> should.equal([skode.Comment("lead synth voice")])
+  c2
+  |> should.equal([
+    skode.Atom("v", [skode.Num(0.0)]),
+    skode.Atom("f", [skode.Num(440.0)]),
+  ])
+
+  // 2. Timing deferrals (+0.25 relative seconds and ~4 tempo ticks)
+  let assert Ok(script_defer) = skode.parse("+0.25 v0l0; ~4 v1l0")
+  let assert skode.Script([skode.Chunk([d1]), skode.Chunk([d2])]) = script_defer
+  d1
+  |> should.equal(
+    skode.Defer(skode.RelativeSeconds, 0.25, [
+      skode.Atom("v", [skode.Num(0.0)]),
+      skode.Atom("l", [skode.Num(0.0)]),
+    ]),
+  )
+  d2
+  |> should.equal(
+    skode.Defer(skode.TempoTicks, 4.0, [
+      skode.Atom("v", [skode.Num(1.0)]),
+      skode.Atom("l", [skode.Num(0.0)]),
+    ]),
+  )
+
+  // 3. Named macro definitions [play] : v0 l1 ;
+  let assert Ok(script_macro) = skode.parse("[play] : v0 l1 ;")
+  let assert skode.Script([skode.Chunk([m1])]) = script_macro
+  m1
+  |> should.equal(
+    skode.MacroDef("play", [
+      skode.Atom("v", [skode.Num(0.0)]),
+      skode.Atom("l", [skode.Num(1.0)]),
+    ]),
+  )
+
+  // 4. Registers ($0), streams (&1), macro arg placeholders ($$2)
+  let assert Ok(script_regs) = skode.parse("$0 &1 $$2")
+  let assert skode.Script([skode.Chunk(regs)]) = script_regs
+  regs
+  |> should.equal([
+    skode.VarRefElement(0),
+    skode.StreamRefElement(1),
+    skode.MacroArgRef(2),
+  ])
+}
+
+pub fn skode_parser_commands_test() {
+  // Test high-level domain parse_command
+  let assert Ok(cmds) =
+    skode.parse_command("v0 a-3.5 f440 p0.2 m0 l1.0 T; [beat.wav] /w")
+
+  cmds
+  |> should.equal([
+    skode.SetVoice(0),
+    skode.SetAmp(-3.5),
+    skode.SetFrequency(440.0),
+    skode.SetPan(0.2),
+    skode.SetMute(False),
+    skode.SetGate(1.0),
+    skode.Trigger,
+    skode.LoadWaveFile("beat.wav"),
+  ])
+
+  // Macro definition in parse_command
+  let assert Ok(macro_cmds) = skode.parse_command("[intro] : v0 l1 ;")
+  macro_cmds
+  |> should.equal([
+    skode.DefineMacro(
+      "intro",
+      skode.Bundle([skode.SetVoice(0), skode.SetGate(1.0)]),
+    ),
+  ])
+
+  // Note-to-data notation conversion
+  let assert Ok(note_cmds) = skode.parse_command("[ C4 E4 G4 B4 ] n>d")
+  note_cmds
+  |> should.equal([
+    skode.Raw("[ C4 E4 G4 B4 ] n>d"),
+  ])
+}
