@@ -63,24 +63,6 @@ pub fn view_master_bar(model: Model) -> Element(Msg) {
       [text("🎲 Random All")],
     ),
 
-    // Save & Load Project ZIP
-    button(
-      [
-        class("btn btn-secondary"),
-        event.on_click(types.SaveProjectZip),
-        attribute("title", "Export project & audio files to .zip"),
-      ],
-      [text("💾 Save")],
-    ),
-    button(
-      [
-        class("btn btn-secondary"),
-        event.on_click(types.TriggerLoadZip),
-        attribute("title", "Restore project & audio files from .zip"),
-      ],
-      [text("📥 Load")],
-    ),
-
     // Theme Toggle Button
     button(
       [

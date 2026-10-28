@@ -416,7 +416,15 @@ export function sendCommand(cmd) {
 // ---------------------------------------------------------------------------
 export function capturePointer(event) {
   if (!event) return;
-  const target = event.currentTarget || event.target;
+  const rawTarget = event.target;
+  if (
+    rawTarget &&
+    (rawTarget.tagName === "BUTTON" ||
+      (typeof rawTarget.closest === "function" && rawTarget.closest("button")))
+  ) {
+    return;
+  }
+  const target = event.currentTarget || rawTarget;
   if (
     target &&
     typeof target.setPointerCapture === "function" &&

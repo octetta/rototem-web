@@ -537,3 +537,53 @@ pub fn play_all_omits_unassigned_tracks_test() {
     |> list.all(fn(t) { !t.playing })
   unassigned_are_stopped |> should.equal(True)
 }
+
+pub fn console_controls_and_execution_test() {
+  let #(initial_model, _) = rototem_web.init(Nil)
+
+  // 1. ExecuteConsoleCommand should add to history and update console_input
+  let #(model_after_quick, _) =
+    rototem_web.update(initial_model, types.ExecuteConsoleCommand("?a"))
+  model_after_quick.console_input |> should.equal("?a")
+  model_after_quick.command_history |> should.equal(["?a"])
+
+  // 2. ClearConsole should empty console_logs
+  let model_with_logs =
+    types.Model(..initial_model, console_logs: [
+      types.ConsoleLog("?a", 0, "audio running"),
+    ])
+  let #(model_cleared, _) =
+    rototem_web.update(model_with_logs, types.ClearConsole)
+  model_cleared.console_logs |> should.equal([])
+
+  // 3. ResetConsolePosition should restore default coordinates and size
+  let moved_model =
+    types.Model(
+      ..initial_model,
+      console_x: 500.0,
+      console_y: 300.0,
+      console_width: 800.0,
+      console_height: 600.0,
+    )
+  let #(model_reset, _) =
+    rototem_web.update(moved_model, types.ResetConsolePosition)
+  model_reset.console_x |> should.equal(120.0)
+  model_reset.console_y |> should.equal(80.0)
+  model_reset.console_width |> should.equal(620.0)
+  model_reset.console_height |> should.equal(420.0)
+
+  // 4. ToggleConsole should toggle show_console
+  let #(toggled, _) = rototem_web.update(initial_model, types.ToggleConsole)
+  toggled.show_console |> should.equal(True)
+  let #(toggled_back, _) = rototem_web.update(toggled, types.ToggleConsole)
+  toggled_back.show_console |> should.equal(False)
+
+  // 5. JSON dynamic decode of key_down decoder for Escape and Enter
+  let enter_json = "{\"key\": \"Enter\"}"
+  json.parse(enter_json, common.key_down_console_decoder())
+  |> should.equal(Ok(types.SubmitConsoleCommand))
+
+  let esc_json = "{\"key\": \"Escape\"}"
+  json.parse(esc_json, common.key_down_console_decoder())
+  |> should.equal(Ok(types.ToggleConsole))
+}

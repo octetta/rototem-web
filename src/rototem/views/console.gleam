@@ -30,22 +30,28 @@ pub fn view_console_drawer(model: Model) -> Element(Msg) {
       ]),
     ],
     [
-      // Console Header Bar (Drag Handle)
+      // Console Header Bar
       div(
         [
           class(case model.console_dragging {
             True -> "console-title-bar grabbing"
             False -> "console-title-bar"
           }),
-          event.on("pointerdown", pointer_down_drag_console_decoder()),
         ],
         [
-          div([class("card-header-left")], [
-            span([class("console-title")], [text("SKRED CONSOLE")]),
-            span([class("console-hint")], [
-              text("drag to move • resize corner • Ctrl-~ or Esc"),
-            ]),
-          ]),
+          // Drag handle on title & hint area
+          div(
+            [
+              class("card-header-left draggable"),
+              event.on("pointerdown", pointer_down_drag_console_decoder()),
+            ],
+            [
+              span([class("console-title")], [text("SKRED CONSOLE")]),
+              span([class("console-hint")], [
+                text("drag to move • resize corner • Ctrl-~ or Esc"),
+              ]),
+            ],
+          ),
           div([class("card-header-right")], [
             button(
               [
@@ -137,8 +143,7 @@ fn quick_cmd_btn(label_str: String, cmd: String) -> Element(Msg) {
   button(
     [
       class("quick-cmd-btn"),
-      event.on_click(types.ConsoleResultReceived(cmd, 0, "")),
-      event.on_click(types.SetConsoleInput(cmd)),
+      event.on_click(types.ExecuteConsoleCommand(cmd)),
     ],
     [text(label_str)],
   )

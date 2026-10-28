@@ -174,6 +174,7 @@ pub type Msg {
   ToggleConsole
   SetConsoleInput(String)
   SubmitConsoleCommand
+  ExecuteConsoleCommand(String)
   ConsoleHistoryUp
   ConsoleHistoryDown
   ConsoleResultReceived(cmd: String, ret: Int, response: String)

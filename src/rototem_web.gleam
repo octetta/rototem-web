@@ -823,6 +823,28 @@ fn update_console_msg(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       }
     }
 
+    types.ExecuteConsoleCommand(cmd) -> {
+      let trimmed = string.trim(cmd)
+      case trimmed {
+        "" -> #(model, effect.none())
+        c -> {
+          let history = [
+            c,
+            ..list.filter(model.command_history, fn(item) { item != c })
+          ]
+          #(
+            Model(
+              ..model,
+              console_input: c,
+              command_history: history,
+              history_index: -1,
+            ),
+            skred.eval_command_effect(c),
+          )
+        }
+      }
+    }
+
     types.ConsoleHistoryUp -> {
       let len = list.length(model.command_history)
       case len > 0 {
@@ -1115,6 +1137,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     types.ToggleConsole
     | types.SetConsoleInput(..)
     | types.SubmitConsoleCommand
+    | types.ExecuteConsoleCommand(..)
     | types.ConsoleHistoryUp
     | types.ConsoleHistoryDown
     | types.ConsoleResultReceived(..)

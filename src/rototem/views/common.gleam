@@ -7,12 +7,25 @@
 import gleam/dynamic/decode
 import gleam/float
 import gleam/int
+import gleam/option.{Some}
 import rototem/skred
 import rototem/types.{type Msg, type Theme, Dark, Light}
 
 // ---------------------------------------------------------------------------
 // Pointer Event Decoders (Touch, Mouse, Pen with Pointer Capture)
 // ---------------------------------------------------------------------------
+
+fn is_not_button_decoder() -> decode.Decoder(Nil) {
+  use target_tag <- decode.subfield(
+    ["target", "tagName"],
+    decode.optional(decode.string),
+  )
+  case target_tag {
+    Some("BUTTON") | Some("button") ->
+      decode.failure(Nil, "Ignored click on button")
+    _ -> decode.success(Nil)
+  }
+}
 
 fn capture_pointer_decoder() -> decode.Decoder(Nil) {
   decode.new_primitive_decoder("PointerCapture", fn(d) {
@@ -27,6 +40,7 @@ pub fn pointer_down_drag_decoder(
   card_x: Float,
   card_y: Float,
 ) -> decode.Decoder(Msg) {
+  use _ <- decode.then(is_not_button_decoder())
   use _ <- decode.then(capture_pointer_decoder())
   use cx <- decode.field("clientX", decode.float)
   use cy <- decode.field("clientY", decode.float)
@@ -42,6 +56,7 @@ pub fn pointer_move_decoder() -> decode.Decoder(Msg) {
 
 /// Decodes pointer down event coordinates for the console drawer drag header.
 pub fn pointer_down_drag_console_decoder() -> decode.Decoder(Msg) {
+  use _ <- decode.then(is_not_button_decoder())
   use _ <- decode.then(capture_pointer_decoder())
   use cx <- decode.field("clientX", decode.float)
   use cy <- decode.field("clientY", decode.float)
@@ -71,6 +86,7 @@ pub fn key_down_console_decoder() -> decode.Decoder(Msg) {
     "Enter" -> decode.success(types.SubmitConsoleCommand)
     "ArrowUp" -> decode.success(types.ConsoleHistoryUp)
     "ArrowDown" -> decode.success(types.ConsoleHistoryDown)
+    "Escape" -> decode.success(types.ToggleConsole)
     _ -> decode.failure(types.SubmitConsoleCommand, "Not handled")
   }
 }
