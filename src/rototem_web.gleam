@@ -250,20 +250,40 @@ fn update_track_msg(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     types.ToggleTrackPlay(track_id) -> {
       case list.find(model.tracks, fn(t) { t.id == track_id }) {
         Ok(t) -> {
-          let new_play = !t.playing
-          let updated_tracks =
-            update_track(model.tracks, track_id, fn(tr) {
-              Track(..tr, playing: new_play)
-            })
-          let all_now_playing = list.all(updated_tracks, fn(tr) { tr.playing })
-          let cmd = case new_play {
-            True -> track_control_command(t, True)
-            False -> skode.stereo_run(t.left_voice, t.right_voice, False)
+          case t.audio_file {
+            None -> {
+              #(
+                Model(
+                  ..model,
+                  status_message: "Track "
+                    <> int.to_string(track_id + 1)
+                    <> ": Assign an audio sample before playing.",
+                ),
+                effect.none(),
+              )
+            }
+            Some(_) -> {
+              let new_play = !t.playing
+              let updated_tracks =
+                update_track(model.tracks, track_id, fn(tr) {
+                  Track(..tr, playing: new_play)
+                })
+              let any_now_playing =
+                list.any(updated_tracks, fn(tr) { tr.playing })
+              let cmd = case new_play {
+                True -> track_control_command(t, True)
+                False -> skode.stereo_run(t.left_voice, t.right_voice, False)
+              }
+              #(
+                Model(
+                  ..model,
+                  tracks: updated_tracks,
+                  all_playing: any_now_playing,
+                ),
+                skred.send(cmd),
+              )
+            }
           }
-          #(
-            Model(..model, tracks: updated_tracks, all_playing: all_now_playing),
-            skred.send(cmd),
-          )
         }
         Error(_) -> #(model, effect.none())
       }
@@ -467,63 +487,145 @@ fn update_master_msg(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     types.ToggleAllPlay -> {
       let any_playing = list.any(model.tracks, fn(t) { t.playing })
       let new_all_playing = !any_playing
-      let updated_tracks =
-        list.map(model.tracks, fn(t) { Track(..t, playing: new_all_playing) })
-      let cmd = case new_all_playing {
-        True ->
-          skode.Bundle(
-            list.map(model.tracks, fn(t) { track_control_command(t, True) }),
+
+      case new_all_playing {
+        True -> {
+          // Only start tracks with an assigned audio sample
+          let playable_tracks =
+            list.filter(model.tracks, fn(t) { option.is_some(t.audio_file) })
+
+          case playable_tracks {
+            [] -> {
+              #(
+                Model(
+                  ..model,
+                  status_message: "No audio samples assigned to any track. Load samples first.",
+                ),
+                effect.none(),
+              )
+            }
+            _ -> {
+              let updated_tracks =
+                list.map(model.tracks, fn(t) {
+                  case t.audio_file {
+                    Some(_) -> Track(..t, playing: True)
+                    None -> Track(..t, playing: False)
+                  }
+                })
+              let cmd =
+                skode.Bundle(
+                  list.map(playable_tracks, fn(t) {
+                    track_control_command(t, True)
+                  }),
+                )
+              let count = list.length(playable_tracks)
+              let status =
+                "Started playback on "
+                <> int.to_string(count)
+                <> " track(s) with assigned waves"
+              #(
+                Model(
+                  ..model,
+                  all_playing: True,
+                  tracks: updated_tracks,
+                  status_message: status,
+                ),
+                skred.send(cmd),
+              )
+            }
+          }
+        }
+
+        False -> {
+          let updated_tracks =
+            list.map(model.tracks, fn(t) { Track(..t, playing: False) })
+          let cmd =
+            skode.Bundle(
+              list.map(model.tracks, fn(t) {
+                skode.stereo_run(t.left_voice, t.right_voice, False)
+              }),
+            )
+          #(
+            Model(
+              ..model,
+              all_playing: False,
+              tracks: updated_tracks,
+              status_message: "Stopped playback on all tracks",
+            ),
+            skred.send(cmd),
           )
-        False ->
-          skode.Bundle(
-            list.map(model.tracks, fn(t) {
-              skode.stereo_run(t.left_voice, t.right_voice, False)
-            }),
-          )
+        }
       }
-      let status = case new_all_playing {
-        True -> "Started playback on all tracks"
-        False -> "Stopped playback on all tracks"
-      }
-      #(
-        Model(
-          ..model,
-          all_playing: new_all_playing,
-          tracks: updated_tracks,
-          status_message: status,
-        ),
-        skred.send(cmd),
-      )
     }
 
     types.SetAllPlay(playing) -> {
-      let updated_tracks =
-        list.map(model.tracks, fn(t) { Track(..t, playing: playing) })
-      let cmd = case playing {
-        True ->
-          skode.Bundle(
-            list.map(model.tracks, fn(t) { track_control_command(t, True) }),
+      case playing {
+        True -> {
+          let playable_tracks =
+            list.filter(model.tracks, fn(t) { option.is_some(t.audio_file) })
+
+          case playable_tracks {
+            [] -> {
+              #(
+                Model(
+                  ..model,
+                  status_message: "No audio samples assigned to any track.",
+                ),
+                effect.none(),
+              )
+            }
+            _ -> {
+              let updated_tracks =
+                list.map(model.tracks, fn(t) {
+                  case t.audio_file {
+                    Some(_) -> Track(..t, playing: True)
+                    None -> Track(..t, playing: False)
+                  }
+                })
+              let cmd =
+                skode.Bundle(
+                  list.map(playable_tracks, fn(t) {
+                    track_control_command(t, True)
+                  }),
+                )
+              let count = list.length(playable_tracks)
+              let status =
+                "Started playback on "
+                <> int.to_string(count)
+                <> " track(s) with assigned waves"
+              #(
+                Model(
+                  ..model,
+                  all_playing: True,
+                  tracks: updated_tracks,
+                  status_message: status,
+                ),
+                skred.send(cmd),
+              )
+            }
+          }
+        }
+
+        False -> {
+          let updated_tracks =
+            list.map(model.tracks, fn(t) { Track(..t, playing: False) })
+          let cmd =
+            skode.Bundle(
+              list.map(model.tracks, fn(t) {
+                skode.stereo_run(t.left_voice, t.right_voice, False)
+              }),
+            )
+          #(
+            Model(
+              ..model,
+              all_playing: False,
+              tracks: updated_tracks,
+              status_message: "Stopped playback on all tracks",
+            ),
+            skred.send(cmd),
           )
-        False ->
-          skode.Bundle(
-            list.map(model.tracks, fn(t) {
-              skode.stereo_run(t.left_voice, t.right_voice, False)
-            }),
-          )
+        }
       }
-      let status = case playing {
-        True -> "Started playback on all tracks"
-        False -> "Stopped playback on all tracks"
-      }
-      #(
-        Model(
-          ..model,
-          all_playing: playing,
-          tracks: updated_tracks,
-          status_message: status,
-        ),
-        skred.send(cmd),
-      )
     }
 
     types.RandomizeAllSamples -> {

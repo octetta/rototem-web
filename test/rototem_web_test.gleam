@@ -12,6 +12,7 @@ import rototem/types.{
 }
 import rototem/ui
 import rototem/views/common
+import rototem_web
 
 pub fn main() {
   gleeunit.main()
@@ -480,4 +481,59 @@ pub fn view_common_helpers_test() {
   // Pitch formatting
   common.format_pitch(69.0) |> should.equal("69.0")
   common.format_pitch(60.25) |> should.equal("60.3")
+}
+
+pub fn play_all_omits_unassigned_tracks_test() {
+  let #(initial_model, _) = rototem_web.init(Nil)
+
+  // 1. Initially no tracks have audio files assigned. ToggleAllPlay should not start playback.
+  let #(model_after_toggle_empty, _) =
+    rototem_web.update(initial_model, types.ToggleAllPlay)
+  model_after_toggle_empty.all_playing |> should.equal(False)
+  list.all(model_after_toggle_empty.tracks, fn(t) { !t.playing })
+  |> should.equal(True)
+
+  // 2. Individual ToggleTrackPlay on track with no sample does nothing
+  let #(model_after_single_empty, _) =
+    rototem_web.update(initial_model, types.ToggleTrackPlay(0))
+  let assert Ok(t0_empty) = list.first(model_after_single_empty.tracks)
+  t0_empty.playing |> should.equal(False)
+
+  // 3. Assign sample ONLY to track 0
+  let sample =
+    AudioFile(
+      id: "snare.wav",
+      name: "snare.wav",
+      path: "waves/snare.wav",
+      size: 2048,
+    )
+  let model_with_one_sample =
+    types.Model(
+      ..initial_model,
+      library: [sample],
+      tracks: list.map(initial_model.tracks, fn(t) {
+        case t.id {
+          0 -> types.Track(..t, audio_file: Some(sample))
+          _ -> t
+        }
+      }),
+    )
+
+  // 4. ToggleAllPlay should start ONLY track 0; tracks 1..7 remain playing: False
+  let #(model_played, _) =
+    rototem_web.update(model_with_one_sample, types.ToggleAllPlay)
+  model_played.all_playing |> should.equal(True)
+
+  let assert Ok(t0_played) = list.find(model_played.tracks, fn(t) { t.id == 0 })
+  t0_played.playing |> should.equal(True)
+
+  let assert Ok(t1_unassigned) =
+    list.find(model_played.tracks, fn(t) { t.id == 1 })
+  t1_unassigned.playing |> should.equal(False)
+
+  let unassigned_are_stopped =
+    model_played.tracks
+    |> list.filter(fn(t) { t.id != 0 })
+    |> list.all(fn(t) { !t.playing })
+  unassigned_are_stopped |> should.equal(True)
 }

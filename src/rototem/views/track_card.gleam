@@ -157,15 +157,24 @@ fn view_card_minimized_body(track: Track) -> Element(Msg) {
     None -> ""
   }
 
+  let has_sample = option.is_some(track.audio_file)
+  let play_btn_class = case track.playing, has_sample {
+    True, _ -> "btn btn-danger btn-xs"
+    False, True -> "btn btn-primary btn-xs"
+    False, False -> "btn btn-secondary btn-xs btn-no-sample"
+  }
+  let play_btn_title = case has_sample {
+    True -> "Toggle playback"
+    False -> "Assign an audio sample to enable playback"
+  }
+
   div([class("card-minimized-body")], [
     span([class("sample-name-min")], [text(sample_label)]),
     div([class("minimized-controls")], [
       button(
         [
-          class(case track.playing {
-            True -> "btn btn-danger btn-xs"
-            False -> "btn btn-primary btn-xs"
-          }),
+          class(play_btn_class),
+          attribute("title", play_btn_title),
           event.on_click(types.ToggleTrackPlay(track.id)),
         ],
         [
@@ -202,6 +211,7 @@ fn view_card_expanded_body(
     Some(f) -> f.id
     None -> ""
   }
+  let has_sample = option.is_some(track.audio_file)
 
   div([class("card-body")], [
     // Sample Selection Row
@@ -246,9 +256,14 @@ fn view_card_expanded_body(
     div([class("transport-row")], [
       button(
         [
-          class(case track.playing {
-            True -> "btn-transport btn-play-active"
-            False -> "btn-transport btn-play-inactive"
+          class(case track.playing, has_sample {
+            True, _ -> "btn-transport btn-play-active"
+            False, True -> "btn-transport btn-play-inactive"
+            False, False -> "btn-transport btn-play-empty"
+          }),
+          attribute("title", case has_sample {
+            True -> "Toggle playback"
+            False -> "Assign an audio sample to enable playback"
           }),
           event.on_click(types.ToggleTrackPlay(track.id)),
         ],
