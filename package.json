@@ -7,10 +7,11 @@
   },
   "scripts": {
     "build:gleam": "gleam build --target javascript",
-    "build": "gleam build --target javascript && vite build",
+    "build": "gleam build --target javascript && vite build && gleam docs build && mkdir -p dist/docs && cp -r build/dev/docs/rototem_web/* dist/docs/",
     "dev": "gleam build --target javascript && vite",
     "preview": "vite preview",
-    "test": "gleam test --target javascript"
+    "test": "gleam test --target javascript",
+    "docs": "gleam docs build && mkdir -p dist/docs && cp -r build/dev/docs/rototem_web/* dist/docs/"
   },
   "devDependencies": {
     "vite": "^6.2.0"

@@ -183,6 +183,7 @@
   cursor: pointer;
   background: var(--bg-subtle);
   color: var(--text-main);
+  text-decoration: none;
   transition: opacity 0.15s ease;
 }
 

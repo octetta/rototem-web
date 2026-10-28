@@ -46,7 +46,7 @@ jobs:
       - name: Run Gleam tests
         run: gleam test --target javascript
 
-      - name: Build web application
+      - name: Build web application and documentation
         run: npm run build
 
       - name: Upload Pages artifact

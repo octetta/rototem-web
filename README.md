@@ -2,6 +2,11 @@
 
 > **Modern Web-First Audio Workstation**: Control the **Skred** audio engine directly in the browser with **Gleam** and **Lustre** (The Elm Architecture), featuring 8 stereo track voice pairs, hybrid grid/floating draggable cards, directory bulk audio loading (.wav, .mp3, .flac), project ZIP persistence, and real-time audio recording.
 
+[![Gleam](https://img.shields.io/badge/Gleam-v1.1.0+-ffaff3?logo=gleam)](https://gleam.run)
+[![Lustre](https://img.shields.io/badge/Lustre-TEA-8b5cf6)](https://github.com/hayleigh-dot-dev/lustre)
+[![API Documentation](https://img.shields.io/badge/docs-Gleam%20API-2ea44f?logo=readme)](https://octetta.github.io/rototem-web/docs/)
+[![Live Demo](https://img.shields.io/badge/demo-GitHub%20Pages-blue?logo=github)](https://octetta.github.io/rototem-web/)
+
 ---
 
 ## 🌟 Highlights & Architecture
@@ -144,12 +149,15 @@ make format  # Auto-format all Gleam files
 ```
 Executes the comprehensive test suite (`test/rototem_web_test.gleam`), validating AST compilation, ANDS syntax lowering, settings serialization round-trips, theme decoders, and real-time control plane event handling.
 
-### 3. Generate HTML Documentation
+### 3. Generate HTML Documentation & GitHub Pages Hosting
 ```bash
 make docs
 # or: gleam docs build
 ```
-Renders complete, hyperlinked documentation with type signatures and docstrings to `build/dev/docs/rototem_web/index.html`.
+Renders complete, hyperlinked documentation with type signatures, module guides, and full-text search from all in-code `////` and `///` comments to `build/dev/docs/rototem_web/index.html`.
+
+In production builds, documentation is automatically compiled into `dist/docs/` and deployed to GitHub Pages alongside the application:
+👉 **[Interactive API Documentation](https://octetta.github.io/rototem-web/docs/)**
 
 ### 4. Build for Production
 ```bash

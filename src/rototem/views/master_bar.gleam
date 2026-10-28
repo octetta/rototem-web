@@ -10,7 +10,7 @@ import gleam/list
 import lustre/attribute.{attribute, class, selected, styles, type_, value}
 import lustre/element.{type Element, text}
 import lustre/element/html.{
-  button, div, h1, header, input, label, option, select, span,
+  a, button, div, h1, header, input, label, option, select, span,
 }
 import lustre/event
 import rototem/types.{type Model, type Msg, Dark, Light}
@@ -155,6 +155,21 @@ pub fn view_master_bar(model: Model) -> Element(Msg) {
         event.on_click(types.ToggleLibraryModal),
       ],
       [text("Files (" <> int.to_string(list.length(model.library)) <> ")")],
+    ),
+
+    // Documentation Link
+    a(
+      [
+        class("btn btn-secondary"),
+        attribute("href", "./docs/index.html"),
+        attribute("target", "_blank"),
+        attribute("rel", "noopener noreferrer"),
+        attribute(
+          "title",
+          "Open interactive Gleam API documentation in a new tab",
+        ),
+      ],
+      [text("📖 Docs")],
     ),
   ])
 }
