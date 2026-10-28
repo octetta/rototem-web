@@ -32,9 +32,23 @@ pub fn view_master_bar(model: Model) -> Element(Msg) {
     button(
       [
         class("btn btn-primary"),
+        attribute("title", "Select a folder of audio files (.wav, .mp3, .flac)"),
         event.on_click(types.PickDirectory),
       ],
       [text("📂 Folder")],
+    ),
+
+    // Generic Add File to Skred VFS (.zip, .sk, .ks, .wav, .mp3, .flac)
+    button(
+      [
+        class("btn btn-secondary"),
+        attribute(
+          "title",
+          "Add files (.zip, .sk, .ks, .wav, .mp3, .flac) directly to Skred Emscripten VFS",
+        ),
+        event.on_click(types.PickVfsFiles),
+      ],
+      [text("📄 Add File")],
     ),
 
     // Start / Stop All Voices Unified Button

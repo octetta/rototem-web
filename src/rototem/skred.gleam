@@ -12,7 +12,7 @@ import gleam/result
 import lustre/effect.{type Effect}
 import rototem/skode
 import rototem/types.{
-  type AudioDevice, type AudioFile, type Msg, type SkredEvent,
+  type AudioDevice, type AudioFile, type Msg, type SkredEvent, type VfsFile,
 }
 
 @external(javascript, "../skred_ffi.mjs", "initEngine")
@@ -47,6 +47,12 @@ fn js_export_zip(settings_json: String, callback: fn(String) -> Nil) -> Nil
 
 @external(javascript, "../skred_ffi.mjs", "triggerLoadZip")
 fn js_trigger_load_zip(callback: fn(String, List(AudioFile)) -> Nil) -> Nil
+
+@external(javascript, "../skred_ffi.mjs", "pickVfsFiles")
+fn js_pick_vfs_files(callback: fn(List(VfsFile)) -> Nil) -> Nil
+
+@external(javascript, "../skred_ffi.mjs", "removeVfsFile")
+fn js_remove_vfs_file(name: String) -> Nil
 
 @external(javascript, "../skred_ffi.mjs", "listAudioDevices")
 fn js_list_audio_devices(callback: fn(List(AudioDevice)) -> Nil) -> Nil
@@ -144,6 +150,18 @@ pub fn load_zip_effect() -> Effect(Msg) {
       dispatch(types.ZipProjectLoaded(settings, files))
     })
   })
+}
+
+/// Prompts the user to pick generic files (.zip, .sk, .ks, .wav, .mp3, .flac) to write directly into Emscripten VFS.
+pub fn pick_vfs_files_effect() -> Effect(Msg) {
+  effect.from(fn(dispatch) {
+    js_pick_vfs_files(fn(files) { dispatch(types.VfsFilesUploaded(files)) })
+  })
+}
+
+/// Removes a file from Emscripten VFS.
+pub fn remove_vfs_file_effect(name: String) -> Effect(Msg) {
+  effect.from(fn(_dispatch) { js_remove_vfs_file(name) })
 }
 
 /// Enumerates connected audio output devices via the Web Audio API.

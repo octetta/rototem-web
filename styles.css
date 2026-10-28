@@ -705,6 +705,47 @@
   background: var(--border);
 }
 
+.console-vfs-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.65rem;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.vfs-chip {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-card);
+  overflow: hidden;
+}
+
+.vfs-chip .quick-cmd-btn {
+  border: none;
+  background: transparent;
+  border-radius: 0;
+}
+
+.vfs-chip-remove {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  padding: 0.2rem 0.35rem;
+  cursor: pointer;
+  font-size: 0.65rem;
+  line-height: 1;
+}
+
+.vfs-chip-remove:hover {
+  background: rgba(248, 81, 73, 0.2);
+  color: var(--danger-text);
+}
+
+
 .console-log-area {
   flex: 1;
   overflow-y: auto;

@@ -3,7 +3,7 @@
 
 import { zip, unzip, strToU8, strFromU8 } from "#vendor/fflate.mjs";
 import { toList } from "./gleam.mjs";
-import { AudioFile, AudioDevice } from "./rototem/types.mjs";
+import { AudioFile, AudioDevice, VfsFile } from "./rototem/types.mjs";
 
 const win = typeof window !== "undefined" ? window : globalThis;
 
@@ -845,6 +845,68 @@ export function triggerLoadZip(callback) {
 
   document.body.appendChild(input);
   input.click();
+}
+
+export function pickVfsFiles(callback) {
+  ensureAudioContext();
+
+  const input = document.createElement("input");
+  input.type = "file";
+  input.multiple = true;
+  input.accept = ".zip,.wav,.mp3,.flac,.sk,.ks,.txt";
+  input.style.display = "none";
+
+  input.onchange = async () => {
+    if (!input.files || input.files.length === 0) return;
+    const files = Array.from(input.files);
+    const M = getWasmModule();
+    const uploaded = [];
+
+    for (const file of files) {
+      try {
+        const buffer = await file.arrayBuffer();
+        const uint8 = new Uint8Array(buffer);
+        const baseName = file.name.split("/").pop().split("\\").pop();
+        const ext = baseName.includes(".") ? baseName.split(".").pop().toLowerCase() : "";
+
+        if (M && M.FS) {
+          try { M.FS.writeFile(`/${baseName}`, uint8); } catch (e) {}
+          try { M.FS.writeFile(baseName, uint8); } catch (e) {}
+          if (ext === "wav" || ext === "mp3" || ext === "flac") {
+            try { M.FS.writeFile(`/waves/${baseName}`, uint8); } catch (e) {}
+            try { M.FS.writeFile(`waves/${baseName}`, uint8); } catch (e) {}
+          }
+          console.log(`[rototem-web] Wrote to Emscripten VFS: ${baseName} (${uint8.length} bytes)`);
+        }
+
+        fileStore.set(baseName, uint8);
+        uploaded.push(new VfsFile(baseName, uint8.length, ext));
+      } catch (err) {
+        console.error(`[rototem-web] Error writing ${file.name} to VFS:`, err);
+      }
+    }
+
+    if (callback && uploaded.length > 0) {
+      callback(toList(uploaded));
+    }
+    input.remove();
+  };
+
+  document.body.appendChild(input);
+  input.click();
+}
+
+export function removeVfsFile(fileName) {
+  const baseName = fileName.split("/").pop().split("\\").pop();
+  fileStore.delete(baseName);
+  const M = getWasmModule();
+  if (M && M.FS) {
+    try { M.FS.unlink(`/${baseName}`); } catch (e) {}
+    try { M.FS.unlink(baseName); } catch (e) {}
+    try { M.FS.unlink(`/waves/${baseName}`); } catch (e) {}
+    try { M.FS.unlink(`waves/${baseName}`); } catch (e) {}
+    console.log(`[rototem-web] Unlinked from Emscripten VFS: ${baseName}`);
+  }
 }
 
 // ---------------------------------------------------------------------------

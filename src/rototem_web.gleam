@@ -57,6 +57,7 @@ pub fn init(_flags) -> #(Model, Effect(Msg)) {
     Model(
       tracks: init_tracks(),
       library: [],
+      vfs_files: [],
       master_volume: 0.0,
       all_playing: False,
       recording: False,
@@ -487,6 +488,79 @@ fn update_master_msg(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       #(
         Model(..model, status_message: "Opening directory picker..."),
         skred.pick_directory_effect(),
+      )
+    }
+
+    types.PickVfsFiles -> {
+      #(
+        Model(
+          ..model,
+          status_message: "Opening file picker for Skred Emscripten VFS...",
+        ),
+        skred.pick_vfs_files_effect(),
+      )
+    }
+
+    types.VfsFilesUploaded(new_files) -> {
+      let existing_names = list.map(new_files, fn(f) { f.name })
+      let remaining =
+        list.filter(model.vfs_files, fn(f) {
+          !list.contains(existing_names, f.name)
+        })
+      let updated_vfs = list.append(remaining, new_files)
+
+      let names_summary =
+        new_files
+        |> list.map(fn(f) { f.name })
+        |> string.join(", ")
+
+      let count = list.length(new_files)
+      let status =
+        "Added "
+        <> int.to_string(count)
+        <> " file(s) to Skred VFS: "
+        <> names_summary
+
+      let first_input = case list.first(new_files) {
+        Ok(f) ->
+          case f.ext {
+            "zip" -> "[" <> f.name <> "] %z"
+            "sk" -> "[" <> f.name <> "] /l"
+            "ks" -> "[" <> f.name <> "] /ks"
+            "wav" | "mp3" | "flac" -> "[" <> f.name <> "] /w"
+            _ -> "%cat " <> f.name
+          }
+        Error(_) -> model.console_input
+      }
+
+      let log_entry =
+        types.ConsoleLog(
+          cmd: first_input,
+          ret: 0,
+          response: status <> ". Ready in VFS root.",
+        )
+
+      #(
+        Model(
+          ..model,
+          vfs_files: updated_vfs,
+          status_message: status,
+          console_input: first_input,
+          console_logs: [log_entry, ..model.console_logs],
+        ),
+        effect.none(),
+      )
+    }
+
+    types.RemoveVfsFile(name) -> {
+      let updated_vfs = list.filter(model.vfs_files, fn(f) { f.name != name })
+      #(
+        Model(
+          ..model,
+          vfs_files: updated_vfs,
+          status_message: "Removed " <> name <> " from Skred VFS.",
+        ),
+        skred.remove_vfs_file_effect(name),
       )
     }
 
@@ -1127,6 +1201,9 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     | types.EndDragCard -> update_track_msg(model, msg)
 
     types.PickDirectory
+    | types.PickVfsFiles
+    | types.VfsFilesUploaded(..)
+    | types.RemoveVfsFile(..)
     | types.ToggleAllPlay
     | types.SetAllPlay(..)
     | types.RandomizeAllSamples

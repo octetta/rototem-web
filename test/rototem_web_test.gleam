@@ -8,7 +8,7 @@ import rototem/settings
 import rototem/skode
 import rototem/skred
 import rototem/types.{
-  AudioFile, Dark, Floating, Grid, Light, Minimized, Normal, Track,
+  AudioFile, Dark, Floating, Grid, Light, Minimized, Normal, Track, VfsFile,
 }
 import rototem/ui
 import rototem/views/common
@@ -642,4 +642,33 @@ pub fn track_minimize_and_restore_all_test() {
   let all_restored =
     list.all(model_restored.tracks, fn(t) { t.card_display == Normal })
   all_restored |> should.equal(True)
+}
+
+pub fn vfs_files_test() {
+  let #(initial_model, _) = rototem_web.init(Nil)
+  initial_model.vfs_files |> should.equal([])
+
+  // PickVfsFiles sets status message
+  let #(model_picking, _) =
+    rototem_web.update(initial_model, types.PickVfsFiles)
+  model_picking.status_message
+  |> should.equal("Opening file picker for Skred Emscripten VFS...")
+
+  // VfsFilesUploaded adds files and sets console_input to first file's command
+  let files = [
+    VfsFile(name: "archive.zip", size: 4096, ext: "zip"),
+    VfsFile(name: "melody.sk", size: 512, ext: "sk"),
+  ]
+  let #(model_uploaded, _) =
+    rototem_web.update(initial_model, types.VfsFilesUploaded(files))
+
+  list.length(model_uploaded.vfs_files) |> should.equal(2)
+  model_uploaded.console_input |> should.equal("[archive.zip] %z")
+
+  // RemoveVfsFile removes the specified file
+  let #(model_removed, _) =
+    rototem_web.update(model_uploaded, types.RemoveVfsFile("archive.zip"))
+  list.length(model_removed.vfs_files) |> should.equal(1)
+  let assert Ok(remaining_file) = list.first(model_removed.vfs_files)
+  remaining_file.name |> should.equal("melody.sk")
 }

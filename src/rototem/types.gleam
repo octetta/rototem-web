@@ -35,6 +35,11 @@ pub type AudioFile {
   AudioFile(id: String, name: String, path: String, size: Int)
 }
 
+/// Represents an arbitrary file mounted into the Skred Emscripten VFS (.zip, .sk, .ks, .wav, etc.)
+pub type VfsFile {
+  VfsFile(name: String, size: Int, ext: String)
+}
+
 /// Positioning mode for a track card in the UI workspace.
 pub type CardMode {
   /// Card is docked inside the standard CSS auto-fitting responsive grid.
@@ -99,6 +104,7 @@ pub type Model {
   Model(
     tracks: List(Track),
     library: List(AudioFile),
+    vfs_files: List(VfsFile),
     master_volume: Float,
     all_playing: Bool,
     recording: Bool,
@@ -158,6 +164,9 @@ pub type Msg {
 
   // Master Actions
   PickDirectory
+  PickVfsFiles
+  VfsFilesUploaded(files: List(VfsFile))
+  RemoveVfsFile(name: String)
   ToggleAllPlay
   SetAllPlay(playing: Bool)
   RandomizeAllSamples
