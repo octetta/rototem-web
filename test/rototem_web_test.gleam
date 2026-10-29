@@ -198,11 +198,17 @@ pub fn skode_ast_and_syntax_test() {
   |> should.equal("[v0 n60 l1;] 1 e>")
 
   // 5. Deferrals (+ and ~)
-  skode.command_to_string(skode.DelayRelative(0.25, skode.SetGate(1.0)))
+  skode.command_to_string(skode.DelayRelative(skode.Num(0.25), skode.SetGate(1.0)))
   |> should.equal("+0.25 l1.0")
 
-  skode.command_to_string(skode.DelayTicks(4.0, skode.SetGate(0.0)))
+  skode.command_to_string(skode.DelayTicks(skode.Num(4.0), skode.SetGate(0.0)))
   |> should.equal("~4.0 l0.0")
+
+  skode.command_to_string(skode.DelayRelative(skode.Variable(0), skode.SetGate(1.0)))
+  |> should.equal("+$0 l1.0")
+
+  skode.command_to_string(skode.DelayTicks(skode.Stream(2), skode.SetGate(0.0)))
+  |> should.equal("~&2 l0.0")
 
   // 6. Compound Bundle
   skode.command_to_string(
@@ -741,6 +747,16 @@ pub fn skode_parser_tokens_test() {
     skode.Tie,
     skode.Num(72.0),
   ])
+
+  // 6. Parenthesized data arrays with variables and streams ($0 &0)
+  let assert Ok(script6) = skode.parse("($0 &1 42)")
+  let assert skode.Script([skode.Chunk([skode.Arr(vals6)])]) = script6
+  vals6
+  |> should.equal([
+    skode.Variable(0),
+    skode.Stream(1),
+    skode.Num(42.0),
+  ])
 }
 
 pub fn skode_parser_script_structures_test() {
@@ -759,14 +775,31 @@ pub fn skode_parser_script_structures_test() {
   let assert skode.Script([skode.Chunk([d1]), skode.Chunk([d2])]) = script_defer
   d1
   |> should.equal(
-    skode.Defer(skode.RelativeSeconds, 0.25, [
+    skode.Defer(skode.RelativeSeconds, skode.Num(0.25), [
       skode.Atom("v", [skode.Num(0.0)]),
       skode.Atom("l", [skode.Num(0.0)]),
     ]),
   )
   d2
   |> should.equal(
-    skode.Defer(skode.TempoTicks, 4.0, [
+    skode.Defer(skode.TempoTicks, skode.Num(4.0), [
+      skode.Atom("v", [skode.Num(1.0)]),
+      skode.Atom("l", [skode.Num(0.0)]),
+    ]),
+  )
+
+  let assert Ok(script_defer_vars) = skode.parse("+$0 v0l0; ~&1 v1l0")
+  let assert skode.Script([skode.Chunk([dv1]), skode.Chunk([dv2])]) = script_defer_vars
+  dv1
+  |> should.equal(
+    skode.Defer(skode.RelativeSeconds, skode.Variable(0), [
+      skode.Atom("v", [skode.Num(0.0)]),
+      skode.Atom("l", [skode.Num(0.0)]),
+    ]),
+  )
+  dv2
+  |> should.equal(
+    skode.Defer(skode.TempoTicks, skode.Stream(1), [
       skode.Atom("v", [skode.Num(1.0)]),
       skode.Atom("l", [skode.Num(0.0)]),
     ]),
@@ -819,6 +852,16 @@ pub fn skode_parser_commands_test() {
       "intro",
       skode.Bundle([skode.SetVoice(0), skode.SetGate(1.0)]),
     ),
+  ])
+
+  // Deferrals in parse_command (+0.25, +$0, ~&1)
+  let assert Ok(defer_cmds) =
+    skode.parse_command("+0.25 l1.0; +$0 l0.0; ~&1 l1.0")
+  defer_cmds
+  |> should.equal([
+    skode.DelayRelative(skode.Num(0.25), skode.SetGate(1.0)),
+    skode.DelayRelative(skode.Variable(0), skode.SetGate(0.0)),
+    skode.DelayTicks(skode.Stream(1), skode.SetGate(1.0)),
   ])
 
   // Note-to-data notation conversion

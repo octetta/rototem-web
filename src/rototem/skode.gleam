@@ -77,8 +77,8 @@ pub type Element {
   Arr(List(Value))
   /// In-band comment line or chunk: # comment text
   Comment(String)
-  /// Schedulable deferred chunk (+0.5 ...; or ~2 ...;)
-  Defer(mode: DeferMode, amount: Float, elements: List(Element))
+  /// Schedulable deferred chunk (+0.5 ...; or ~2 ...; or +$0 ...; or ~&1 ...;)
+  Defer(mode: DeferMode, amount: Value, elements: List(Element))
   /// Named text macro definition: [name] : elements ;
   MacroDef(name: String, elements: List(Element))
   /// Macro argument placeholder: $$0, $$1, etc.
@@ -174,8 +174,8 @@ pub type SkodeCommand {
   LineComment(String)
 
   // Timing & Scheduling
-  DelayRelative(seconds: Float, cmd: SkodeCommand)
-  DelayTicks(ticks: Float, cmd: SkodeCommand)
+  DelayRelative(amount: Value, cmd: SkodeCommand)
+  DelayTicks(amount: Value, cmd: SkodeCommand)
 
   // Compound Batch
   Bundle(List(SkodeCommand))
@@ -222,7 +222,7 @@ pub fn element_to_string(el: Element) -> String {
         TempoTicks -> "~"
       }
       let inner = list.map(elements, element_to_string) |> string.join(" ")
-      sigil <> clean_float(amt) <> " " <> inner
+      sigil <> value_to_string(amt) <> " " <> inner
     }
     MacroDef(name, elements) -> {
       let body = list.map(elements, element_to_string) |> string.join(" ")
@@ -347,9 +347,9 @@ pub fn command_to_string(cmd: SkodeCommand) -> String {
     StringLiteral(str) -> "[" <> str <> "]"
     LineComment(c) -> "# " <> c
 
-    DelayRelative(sec, c) ->
-      "+" <> clean_float(sec) <> " " <> command_to_string(c)
-    DelayTicks(t, c) -> "~" <> clean_float(t) <> " " <> command_to_string(c)
+    DelayRelative(amt, c) ->
+      "+" <> value_to_string(amt) <> " " <> command_to_string(c)
+    DelayTicks(amt, c) -> "~" <> value_to_string(amt) <> " " <> command_to_string(c)
 
     Bundle(commands) ->
       list.map(commands, command_to_string) |> string.join("; ")
@@ -872,6 +872,82 @@ fn read_array_values(
   }
 }
 
+fn read_defer_value(
+  chars: List(String),
+  pos: Int,
+) -> Result(#(List(String), Int, Value), ParseError) {
+  let #(clean, p0) = skip_separators(chars, pos)
+  case clean {
+    ["$", "$", c, ..rest]
+      if c == "0"
+      || c == "1"
+      || c == "2"
+      || c == "3"
+      || c == "4"
+      || c == "5"
+      || c == "6"
+      || c == "7"
+      || c == "8"
+      || c == "9"
+    -> {
+      let #(r2, p2, idx) = read_digits_int([c, ..rest], p0 + 2, [])
+      Ok(#(r2, p2, MacroArg(idx)))
+    }
+    ["$", c, ..rest]
+      if c == "0"
+      || c == "1"
+      || c == "2"
+      || c == "3"
+      || c == "4"
+      || c == "5"
+      || c == "6"
+      || c == "7"
+      || c == "8"
+      || c == "9"
+    -> {
+      let #(r2, p2, idx) = read_digits_int([c, ..rest], p0 + 1, [])
+      Ok(#(r2, p2, Variable(idx)))
+    }
+    ["&", c, ..rest]
+      if c == "0"
+      || c == "1"
+      || c == "2"
+      || c == "3"
+      || c == "4"
+      || c == "5"
+      || c == "6"
+      || c == "7"
+      || c == "8"
+      || c == "9"
+    -> {
+      let #(r2, p2, idx) = read_digits_int([c, ..rest], p0 + 1, [])
+      Ok(#(r2, p2, Stream(idx)))
+    }
+    [c, ..rest]
+      if c == "0"
+      || c == "1"
+      || c == "2"
+      || c == "3"
+      || c == "4"
+      || c == "5"
+      || c == "6"
+      || c == "7"
+      || c == "8"
+      || c == "9"
+      || c == "."
+      || c == "-"
+    -> {
+      use #(r2, p2, amt) <- result.try(read_number([c, ..rest], p0, []))
+      Ok(#(r2, p2, Num(amt)))
+    }
+    _ ->
+      Error(ParseError(
+        "Expected timing value (number, variable, or stream) after defer sigil",
+        p0,
+      ))
+  }
+}
+
 fn read_atom_name(
   chars: List(String),
   pos: Int,
@@ -1117,44 +1193,16 @@ fn parse_chunk_elements(
       )
       parse_chunk_elements(r2, p2, pending_args, [Arr(vals), ..acc])
     }
-    ["+", c, ..rest]
-      if c == "0"
-      || c == "1"
-      || c == "2"
-      || c == "3"
-      || c == "4"
-      || c == "5"
-      || c == "6"
-      || c == "7"
-      || c == "8"
-      || c == "9"
-      || c == "."
-    -> {
-      use #(r2, p2, amt) <- result.try(
-        read_number([c, ..rest], next_pos + 1, []),
-      )
+    ["+", ..rest] -> {
+      use #(r2, p2, val) <- result.try(read_defer_value(rest, next_pos + 1))
       use #(r3, p3, def_els) <- result.try(parse_chunk_elements(r2, p2, [], []))
-      let defer_el = Defer(RelativeSeconds, amt, def_els)
+      let defer_el = Defer(RelativeSeconds, val, def_els)
       Ok(#(r3, p3, list.reverse([defer_el, ..acc])))
     }
-    ["~", c, ..rest]
-      if c == "0"
-      || c == "1"
-      || c == "2"
-      || c == "3"
-      || c == "4"
-      || c == "5"
-      || c == "6"
-      || c == "7"
-      || c == "8"
-      || c == "9"
-      || c == "."
-    -> {
-      use #(r2, p2, amt) <- result.try(
-        read_number([c, ..rest], next_pos + 1, []),
-      )
+    ["~", ..rest] -> {
+      use #(r2, p2, val) <- result.try(read_defer_value(rest, next_pos + 1))
       use #(r3, p3, def_els) <- result.try(parse_chunk_elements(r2, p2, [], []))
-      let defer_el = Defer(TempoTicks, amt, def_els)
+      let defer_el = Defer(TempoTicks, val, def_els)
       Ok(#(r3, p3, list.reverse([defer_el, ..acc])))
     }
     ["$", "$", c, ..rest]
